@@ -1,0 +1,29 @@
+# Frontend dependencies and generated output
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Python virtual environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases and temporary test artifacts
+*.db
+.tmp*
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+.vscode/
+.idea/

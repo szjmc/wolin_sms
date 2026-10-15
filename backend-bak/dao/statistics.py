@@ -1,203 +1,239 @@
+"""统计分析数据访问层。
 
-from fastapi import Depends,HTTPException
-from sqlalchemy import func, case, text
+所有统计在 SQL 查询边界排除逻辑删除数据。成绩和就业记录除过滤自身外，还必须
+联接并过滤所属学生；班级学情还要过滤有效班级。
+"""
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
-from database import get_db
-from model.students import students
-from model.classes import classes
-from model.scores import scores
-from model.teachers import teachers
-from model.employment_records import employment_records
-from model.student_past_experiences import StudentPastExperience
-from model import class_teacher_relations
-from pydantic import BaseModel
-from scheme.student import StudentRead
+
+from dao.stu_records_dao import annualized_salary_expression
+from model.class_info import ClassInfo
+from model.score import Score
+from model.stu_records_model import EmploymentRecord
+from model.students_model import StudentDB
+from model.teacher import Teacher
 
 
-
-# 查询所有超过30岁的学员
-def get_students_over_30(db: Session = Depends(get_db)):
-
-    student = (db.query(students).filter(students.is_deleted==False, func.TIMESTAMPDIFF(text("YEAR"), students.birth_date, func.now()) > 30)
-        .order_by(students.birth_date.desc()).all())
-    data = [StudentRead.model_validate(stu).model_dump() for stu in student]
-    if not data:
-        raise HTTPException(404,detail="找不到数据")
-    return {"code": 200, "message": "查询成功", "total": len(data), "data": data}
-
-# @router.get("/statistics/class-gender",summary="统计每个班级的人数及男、女生人数")
-# def get_class_gender_num(db:Session=Depends(get_db)):
-#     case_male = case((Student.gender == "男", 1), else_=0)
-#     case_female = case((Student.gender == "女", 1), else_=0)
-#     res=(db.query(Student.class_id.label("class_id"),func.count(Student.stu_id).label("total"),
-#                   func.sum(case_male).label("male_count"),func.sum(case_female).label("female_count"))
-#           .filter(Student.is_deleted.is_(False)).group_by(Student.class_id).all())
-#
-#     return {
-#         "code": 200,
-#         "data": [
-#             {
-#                 "class_room": r.class_room.class_name,
-#                 "total": r.total,
-#                 "male_count": r.male_count,
-#                 "female_count": r.female_count,
-#             }
-#             for r in res
-#         ],
-#     }
-
-# 统计每个班级的人数及男、女生人数
-def get_class_gender_num(db:Session=Depends(get_db)):
-    case_male = case((students.gender == "男", 1), else_=0)
-    case_female = case((students.gender == "女", 1), else_=0)
-    res=(db.query(students.class_id.label("class_id"),classes.class_name.label("class_name"),func.count(students.id).label("total"),
-                  func.sum(case_male).label("male_count"),func.sum(case_female).label("female_count"))
-         .join(classes, students.class_id == classes.id).filter(students.is_deleted==False)
-         .group_by(students.class_id,classes.class_name).all())
-    data=[
-            {
-                "class_room": r.class_name,
-                "total": r.total,
-                "male_count": r.male_count,
-                "female_count": r.female_count,
-            }
-            for r in res
-        ]
-    if not data:
-        raise HTTPException(404,detail="找不到数据")
-    return {
-        "code": 200,"message": "查询成功", "data": data
-    }
-
-# 每次考试成绩都在80分以上的学生，输出学生编号、姓名、成绩
-def get_score_gt_80_stu(db: Session = Depends(get_db)):
-    s_id=db.query(scores.student_id).group_by(scores.student_id).having(func.min(scores.score)>80).all()
-    l_st=[s.student_id for s in s_id]
-    res=(db.query(students.id.label("student_id"),students.name.label("student_name"),func.group_concat(scores.score).label("score"))
-         .join(scores, scores.student_id == students.id).filter(students.id.in_(l_st),students.is_deleted==False).all())
-
-    data=[{
-        "student_id": r.student_id,
-        "student_name": r.student_name,
-        "score": r.score,
-    } for r in res
-    ]
-    if not data:
-        raise HTTPException(404,detail="找不到数据")
-    return {"code": 200, "message": "查询成功", "data": data}
-
-
-# 查询有两次以上不及格的学⽣的姓名，班级和不及格成绩o
-def fail_twice(db: Session = Depends(get_db)):
-    result = []
-    case_fail=case((scores.score < 60, 1), else_=0)
-    s_c = (db.query(scores.student_id.label("student_id"),students.name.label("student_name"),
-            classes.class_name.label("class_name"),func.sum(case_fail).label("fail_count"))
-        .join(students, students.id == scores.student_id).join(classes, students.class_id == classes.id).filter(students.is_deleted==False,scores.is_deleted==False)
-        .group_by(scores.student_id, students.name, classes.class_name).having(func.sum(case_fail) > 2)  # >2 代表3次及以上；需要2次及以上改成 >=2
-        .all())
-    if not s_c:
-        raise HTTPException(404,detail="找不到数据")
-    for sc in s_c:
-        fail_scores=db.query(scores.score).filter(scores.student_id==sc.student_id,scores.score<60).all()
-        result.append(
-            {
-                "name":sc.student_name,
-                "class_room": sc.class_name,
-                "fail_scores":[f.score for f in fail_scores]
-            }
+# [修改说明] 原代码：DAO 导入 model.students/model.classes 等不存在模块，并混入 Depends、HTTPException、响应字典和 MySQL 专属函数；修改原因：模块无法导入，SQLite 无法执行且各统计遗漏逻辑删除条件；修改为：保留 dao/statistics.py 文件，改用现有正式 ORM，只返回查询结果，业务响应统一由 API 层组装。
+def get_system_overview_counts(db: Session) -> dict[str, int]:
+    """首页四项有效记录总量；就业记录同时受所属学生可见性约束。"""
+    student_total = db.query(func.count(StudentDB.id)).filter(
+        StudentDB.is_deleted == 0
+    ).scalar()
+    class_total = db.query(func.count(ClassInfo.id)).filter(
+        ClassInfo.is_deleted == 0
+    ).scalar()
+    teacher_total = db.query(func.count(Teacher.id)).filter(
+        Teacher.is_deleted == 0
+    ).scalar()
+    employment_total = (
+        db.query(func.count(EmploymentRecord.id))
+        .join(StudentDB, StudentDB.id == EmploymentRecord.student_id)
+        .filter(
+            EmploymentRecord.is_deleted == 0,
+            StudentDB.is_deleted == 0,
         )
-    return {"code": 200, "message": "查询成功", "data": result}
-
-
-# 统计每次考试每个班级的平均分，按照从⾼到低排序
-def class_average_per_exam(db: Session = Depends(get_db)):
-    rows = (db.query(scores.exam_no.label("exam_seq"),classes.class_no.label("class_no"),
-            func.avg(scores.score).label("avg_score"),func.count(scores.student_id).label("student_count"))
-        .join(students, scores.student_id == students.id).join(classes,classes.id==students.class_id)
-        .filter(students.is_deleted==False,scores.is_deleted==False,classes.is_deleted==False)
-        .group_by(scores.exam_no, classes.class_no).order_by(scores.exam_no.asc(), func.avg(scores.score).desc()).all())
-    if not rows:
-        raise HTTPException(404,detail="找不到数据")
+        .scalar()
+    )
     return {
-        "code": 200,"message": "查询成功",
-        "data": [
-            {
-                "class_no": r.class_no,
-                "exam_seq": r.exam_seq,
-                "avg_score": round(float(r.avg_score), 2),
-                "student_count": int(r.student_count),
-            }
-            for r in rows
-        ],
+        "student_total": int(student_total or 0),
+        "class_total": int(class_total or 0),
+        "teacher_total": int(teacher_total or 0),
+        "employment_total": int(employment_total or 0),
     }
 
 
-# 统计就业薪资最⾼的前五名学⽣的姓名，班级和就业时间，就业公司
-def top5_salary(db: Session = Depends(get_db)):
-    case_salary=case((employment_records.salary_period=="year",employment_records.salary_amount),
-                     else_=employment_records.salary_amount*12)
-    emps = (db.query(employment_records).filter(employment_records.salary_amount.isnot(None))
-        .order_by(case_salary.desc()).limit(5).all())
-    if not emps:
-        raise HTTPException(404,detail="找不到数据")
-    return {
-        "code": 200, "message": "查询成功",
-        "data": [
-            {
-                "stu_id": e.student_id,
-                "name": e.student_name_snapshot,
-                "class_room": e.class_no_snapshot,
-                "employment_time": e.offer_date.strftime("%Y-%m-%d") if e.offer_date else None,
-                "company": e.company_name,
-                "position": e.position
-            }
-            for e in emps
-        ],
-    }
-
-# 统计每个学⽣的就业时⻓（offer下发时间-就业开放时间）
-def employment_duration(db: Session = Depends(get_db)):
-    """
-    就业时长 = offer下发时间 - 就业开放时间，单位：天。
-    缺少任一时间（尚未拿到 offer）的学生，duration 返回 None，不参与时长计算。
-    """
-    rows = (db.query(students.id.label("student_id"),students.name.label("student_name"),
-        func.datediff(employment_records.offer_date,employment_records.employment_open_date).label("duration"))
-        .join(employment_records, students.id == employment_records.student_id)
-        .filter(students.is_deleted==False,employment_records.is_deleted==False).all())
-    data = [
-        {
-            "student_id": r.student_id,
-            "student_name": r.student_name,
-            "duration": int(r.duration) if r.duration is not None else None
-        }
-        for r in rows
-    ]
-    if not data:
-        raise HTTPException(404,detail="找不到数据")
-    return {"code": 200, "message": "查询成功", "data": data}
+def count_students_group_by_class_and_gender(
+    db: Session,
+    class_id: int | None = None,
+):
+    """按班级和性别统计未删除学生。"""
+    query = db.query(
+        StudentDB.class_id,
+        StudentDB.gender,
+        func.count(StudentDB.id).label("student_count"),
+    ).filter(StudentDB.is_deleted == 0)
+    if class_id is not None:
+        query = query.filter(StudentDB.class_id == class_id)
+    return (
+        query.group_by(StudentDB.class_id, StudentDB.gender)
+        .order_by(StudentDB.class_id.asc(), StudentDB.gender.asc())
+        .all()
+    )
 
 
-# ）
-# 统计每个班级的平均就业时⻓（只统计进⼊就业阶段的学⽣，也就是有就业开放时间）
-def class_avg_duration(db: Session = Depends(get_db)):
-    """
-    只统计进入就业阶段（有就业开放时间）的学生；
-    平均时长只对同时具备开放时间和 offer 时间的学生求平均，
-    仍在求职（暂无 offer）的学生在未完成人数中体现，保证口径透明。
-    """
+# [修改说明] 原代码：全达标查询使用 MIN(score) > 80，且没有过滤已删除成绩；修改原因：80 分应计入达标，逻辑删除低分不应继续影响结果；修改为：有效成绩按学生分组并使用 HAVING MIN(score) >= 参数，天然排除没有成绩的学生。
+def list_student_ids_all_scores_at_least(db: Session, min_score):
+    rows = (
+        db.query(Score.student_id)
+        .join(StudentDB, StudentDB.id == Score.student_id)
+        .filter(Score.is_deleted == 0, StudentDB.is_deleted == 0)
+        .group_by(Score.student_id)
+        .having(func.min(Score.score) >= min_score)
+        .order_by(Score.student_id.asc())
+        .all()
+    )
+    return [row.student_id for row in rows]
 
-    emps = (db.query(employment_records.class_no_snapshot,func.avg(func.datediff(employment_records.offer_date,employment_records.employment_open_date)).label("avg_time"))
-            .filter(employment_records.employment_open_date.isnot(None)).group_by(employment_records.class_no_snapshot).all())
-    dict_list=[{
-        "class_no_snapshot": e.class_no_snapshot,
-        "avg_time":e.avg_time,
-    } for e in emps]
-    if not dict_list:
-        raise HTTPException(404,detail="找不到数据")
-    return {
-        "code": 200,
-        "data": dict_list,
-    }
 
+def list_failure_counts(db: Session, fail_score, min_fail_count: int):
+    """返回不及格次数达到阈值的学生，按次数降序、学生 ID 升序。"""
+    fail_count = func.count(Score.id)
+    return (
+        db.query(Score.student_id, fail_count.label("fail_count"))
+        .join(StudentDB, StudentDB.id == Score.student_id)
+        .filter(
+            Score.is_deleted == 0,
+            StudentDB.is_deleted == 0,
+            Score.score < fail_score,
+        )
+        .group_by(Score.student_id)
+        .having(fail_count >= min_fail_count)
+        .order_by(fail_count.desc(), Score.student_id.asc())
+        .all()
+    )
+
+
+def list_class_exam_averages(
+    db: Session,
+    exam_no: int | None = None,
+    class_id: int | None = None,
+):
+    """按考核序次和班级统计平均分及有效成绩样本量。"""
+    query = (
+        db.query(
+            ClassInfo.id.label("class_id"),
+            ClassInfo.class_no,
+            ClassInfo.class_name,
+            Score.exam_no,
+            func.avg(Score.score).label("average_score"),
+            func.count(Score.id).label("sample_count"),
+        )
+        .select_from(Score)
+        .join(StudentDB, StudentDB.id == Score.student_id)
+        .join(ClassInfo, ClassInfo.id == StudentDB.class_id)
+        .filter(
+            Score.is_deleted == 0,
+            StudentDB.is_deleted == 0,
+            ClassInfo.is_deleted == 0,
+        )
+    )
+    if exam_no is not None:
+        query = query.filter(Score.exam_no == exam_no)
+    if class_id is not None:
+        query = query.filter(ClassInfo.id == class_id)
+    return (
+        query.group_by(
+            ClassInfo.id,
+            ClassInfo.class_no,
+            ClassInfo.class_name,
+            Score.exam_no,
+        )
+        .order_by(Score.exam_no.asc(), ClassInfo.id.asc())
+        .all()
+    )
+
+
+# [修改说明] 原代码：薪资排序把小写 year 当成年薪，其余全部乘 12，并且未排除已删除记录和学生；修改原因：YEAR 会被错误放大十二倍，删除数据仍进入榜单；修改为：复用就业 DAO 的 MONTH×12/YEAR 原值表达式，并显式联表过滤可见性。
+def list_top_salary_records(db: Session, limit: int):
+    annualized_salary = annualized_salary_expression()
+    return (
+        db.query(EmploymentRecord)
+        .join(StudentDB, StudentDB.id == EmploymentRecord.student_id)
+        .filter(
+            EmploymentRecord.is_deleted == 0,
+            StudentDB.is_deleted == 0,
+        )
+        .order_by(annualized_salary.desc(), EmploymentRecord.id.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+# [修改说明] 原代码：就业时长使用 MySQL DATEDIFF，单条和班级平均查询还会保留日期不完整或已删除记录；修改原因：跨数据库不可执行且统计口径失真；修改为：DAO 只取两个日期齐全的可见记录，API 使用 Python date 相减计算自然日。
+def list_records_with_both_dates(
+    db: Session,
+    student_id: int | None = None,
+    class_no_snapshot: str | None = None,
+):
+    query = (
+        db.query(EmploymentRecord)
+        .join(StudentDB, StudentDB.id == EmploymentRecord.student_id)
+        .filter(
+            EmploymentRecord.is_deleted == 0,
+            StudentDB.is_deleted == 0,
+            EmploymentRecord.employment_open_date.is_not(None),
+            EmploymentRecord.offer_date.is_not(None),
+        )
+    )
+    if student_id is not None:
+        query = query.filter(EmploymentRecord.student_id == student_id)
+    if class_no_snapshot is not None:
+        query = query.filter(
+            EmploymentRecord.class_no_snapshot == class_no_snapshot
+        )
+    return query.order_by(
+        EmploymentRecord.class_no_snapshot.asc(), EmploymentRecord.id.asc()
+    ).all()
+
+
+def get_class_score_summary(db: Session, class_id: int):
+    """班级详情页的成绩条数、覆盖人数、及格条数和平均分。"""
+    return (
+        db.query(
+            func.count(Score.id).label("total_scores"),
+            func.count(func.distinct(Score.student_id)).label("graded_students"),
+            func.coalesce(
+                func.sum(case((Score.score >= 60, 1), else_=0)),
+                0,
+            ).label("passing_scores"),
+            func.avg(Score.score).label("average_score"),
+        )
+        .select_from(Score)
+        .join(StudentDB, StudentDB.id == Score.student_id)
+        .filter(
+            Score.is_deleted == 0,
+            StudentDB.is_deleted == 0,
+            StudentDB.class_id == class_id,
+        )
+        .one()
+    )
+
+
+def count_class_qualified_students(
+    db: Session,
+    class_id: int,
+    min_score=80,
+) -> int:
+    """班级中至少有一条成绩且全部有效成绩达标的学生数。"""
+    qualified = (
+        db.query(Score.student_id.label("student_id"))
+        .join(StudentDB, StudentDB.id == Score.student_id)
+        .filter(
+            Score.is_deleted == 0,
+            StudentDB.is_deleted == 0,
+            StudentDB.class_id == class_id,
+        )
+        .group_by(Score.student_id)
+        .having(func.min(Score.score) >= min_score)
+        .subquery()
+    )
+    return int(db.query(func.count()).select_from(qualified).scalar() or 0)
+
+
+def count_employed_students_by_class_snapshot(
+    db: Session,
+    class_no_snapshot: str,
+) -> int:
+    """按就业记录历史班号快照去重统计仍可见的已就业学生。"""
+    count_value = (
+        db.query(func.count(func.distinct(EmploymentRecord.student_id)))
+        .join(StudentDB, StudentDB.id == EmploymentRecord.student_id)
+        .filter(
+            EmploymentRecord.is_deleted == 0,
+            StudentDB.is_deleted == 0,
+            EmploymentRecord.class_no_snapshot == class_no_snapshot,
+        )
+        .scalar()
+    )
+    return int(count_value or 0)

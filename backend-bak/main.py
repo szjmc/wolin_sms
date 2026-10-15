@@ -1,8 +1,9 @@
 """
 FastAPI 应用入口
 ================
-启动方式（在 backend 目录下执行）：
-    uvicorn main:app --reload --port 8000
+[修改说明] 原启动说明指向 backend 目录；当前整合目标是 backend-bak，改为在本目录启动并显式监听 0.0.0.0。
+启动方式（在 backend-bak 目录下执行）：
+    uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 启动后打开浏览器：
     Swagger 文档：http://127.0.0.1:8000/docs
@@ -27,14 +28,21 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api import (
-    # class_api,
-    # class_teacher_api,
-    # employment_record_api,
-    # past_experience_api,
-    # score_api,
-    # statistics_api,
+    # [修改说明] 原代码：班级路由 class_api 仅以注释占位且实际文件名为 class_info；修改原因：班级模块未注册，前端无法访问任何 /api/v1/classes 接口；修改为：按小组现有文件名导入已完成迁移的 class_info 路由。
+    class_info,
+    # [修改说明] 原代码：班级老师关系路由仅为注释占位；修改原因：补全后的排班绑定、查询和解除接口不会被应用发现；修改为：导入并注册小组既有命名 class_teacher_api。
+    class_teacher_api,
+    # [修改说明] 原代码：就业路由只有不存在的 employment_record_api 注释占位；修改原因：修复后的小组就业四层文件仍不会被应用加载；修改为：按小组原文件名导入 stu_records_api。
+    stu_records_api,
+    # [修改说明] 原代码：过往经历路由只有注释占位且 backend-bak 中缺少实现；修改原因：学生详情页无法维护多条历史经历；修改为：导入新增的 past_experience_api 路由。
+    past_experience_api,
+    # [修改说明] 原代码：成绩路由仅以不存在的 score_api 名称注释占位；修改原因：已补全的小组文件 api/score.py 不会被应用加载；修改为：按现有文件名导入 score 路由。
+    score,
+    # [修改说明] 原代码：统计模块仅保留不存在的 statistics_api 注释占位；修改原因：小组实际文件是 api/statistics.py，补齐后的统计路由不会被加载；修改为：按现有文件名导入 statistics。
+    statistics,
     students_api,
-    # teacher_api,
+    # [修改说明] 原代码：老师路由 teacher_api 仅为注释占位且实际文件名为 teacher；修改原因：老师模块即使补全也不会被应用加载；修改为：按小组现有文件名导入 teacher 路由。
+    teacher,
 )
 from database import Base, engine, get_db
 
@@ -158,14 +166,21 @@ async def unknown_exception_handler(request: Request, exc: Exception):
 # ======================================================================
 API_PREFIX = "/api/v1"
 
-# app.include_router(class_api.router, prefix=API_PREFIX)
-# app.include_router(teacher_api.router, prefix=API_PREFIX)
-# app.include_router(class_teacher_api.router, prefix=API_PREFIX)
+# [修改说明] 原代码：班级路由注册被注释，运行时仅暴露学生模块；修改原因：已补全的班级 CRUD 无法被 FastAPI 发现；修改为：注册 class_info.router，并继续保留尚未迁移模块的注释占位。
+app.include_router(class_info.router, prefix=API_PREFIX)
+# [修改说明] 原代码：老师路由注册被注释；修改原因：前端无法访问已补全的 /api/v1/teachers 接口；修改为：注册 teacher.router。
+app.include_router(teacher.router, prefix=API_PREFIX)
+# [修改说明] 原代码：class_teacher_api.router 注册被注释；修改原因：班级老师关系模块已补齐，必须暴露核心排班及全局排班查询接口；修改为：按统一 API_PREFIX 注册关系路由。
+app.include_router(class_teacher_api.router, prefix=API_PREFIX)
 app.include_router(students_api.router, prefix=API_PREFIX)
-# app.include_router(score_api.router, prefix=API_PREFIX)
-# app.include_router(past_experience_api.router, prefix=API_PREFIX)
-# app.include_router(employment_record_api.router, prefix=API_PREFIX)
-# app.include_router(statistics_api.router, prefix=API_PREFIX)
+# [修改说明] 原代码：成绩路由注册被注释且名称与文件不一致；修改原因：核心成绩及全员成绩管理接口无法访问；修改为：注册 score.router 并沿用统一 API_PREFIX。
+app.include_router(score.router, prefix=API_PREFIX)
+# [修改说明] 原代码：past_experience_api.router 注册被注释；修改原因：新增的经历 CRUD 不会被 FastAPI 发现；修改为：按统一 API_PREFIX 注册过往经历路由。
+app.include_router(past_experience_api.router, prefix=API_PREFIX)
+# [修改说明] 原代码：就业路由注册仅保留不存在模块的注释；修改原因：就业核心 CRUD、筛选项及薪资对比接口均无法访问；修改为：注册修复后的 stu_records_api.router。
+app.include_router(stu_records_api.router, prefix=API_PREFIX)
+# [修改说明] 原代码：statistics_api.router 注册被注释且模块名不存在；修改原因：统计页八个接口和工作台 overview 均无法访问；修改为：注册小组现有 statistics.router。
+app.include_router(statistics.router, prefix=API_PREFIX)
 
 
 @app.get("/", tags=["系统"], summary="首页")

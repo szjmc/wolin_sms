@@ -1,0 +1,11 @@
+# [补全说明] backend-bak 原缺少独立依赖清单；版本与完整 backend 保持一致。
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+pydantic==2.10.3
+pymysql==1.1.1
+cryptography==43.0.3
+python-dotenv==1.0.1
+# [修改说明] 原代码：依赖清单没有 multipart 解析和 xlsx 读写库；修改原因：成绩管理页需要上传、校验、导入和导出真正的 Excel 文件；修改为：增加 FastAPI 文件上传及 openpyxl 依赖。
+python-multipart==0.0.20
+openpyxl==3.1.5

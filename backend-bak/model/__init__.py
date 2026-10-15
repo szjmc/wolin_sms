@@ -1,32 +1,9 @@
-# -*- coding: utf-8 -*-
 """
-老师数据模型（ORM 模型）
-=======================
-对应数据库表 teacher。
-一个类就是一张表，一个属性就是一列。
+数据库模型包
+============
+
+各业务模块从自己的模型文件导入 ORM 类；main.py 在注册对应路由时会先加载这些模型，
+使 Base.metadata.create_all() 能看到已接入模块的数据表。
 """
-from sqlalchemy import Column, String
 
-from app.core.database import Base
-
-
-class Teacher(Base):
-    __tablename__ = "teacher"  # 数据库表名
-
-    # 老师编号，主键，字符串类型，最长 20 个字符
-    teacher_id = Column(String(20), primary_key=True, comment="老师编号")
-
-    # 老师姓名，非空
-    name = Column(String(50), nullable=False, comment="老师姓名")
-
-    # 性别，可空
-    gender = Column(String(4), comment="性别")
-
-    # 联系电话，可空
-    phone = Column(String(20), comment="联系电话")
-
-    # 教授科目，可空
-    subject = Column(String(50), comment="教授科目/方向")
-
-    # 职称，可空
-    title = Column(String(50), comment="职称，如讲师、高级讲师")
+# [修改说明] 原代码：从不存在的 app.core.database 导入 Base，并在包入口重复定义旧版 teacher 表；修改原因：导入任意 model 子模块时都会先执行本文件，原实现会直接 ModuleNotFoundError，且与 model/teacher.py 的 teachers 表重复映射；修改为：包入口不再定义 ORM 表，由各业务模型文件使用 database.Base 统一注册。

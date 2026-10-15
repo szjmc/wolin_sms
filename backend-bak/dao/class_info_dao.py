@@ -1,179 +1,228 @@
 """
-班级 dao 层
-包含：数据库增删改查 + 简单的业务判断（如老师是否存在）
-注意：已剥离学生模块，删除班级时不再检查学生。
+班级 DAO
+========
+只负责 classes 表的基础读写，以及班级删除前所需的关联数量查询。
 """
+from datetime import datetime
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-from model.class_info import ClassInfo, ClassTeacherRelation, Teacher,Student,Score
-from database import serialize
+
+from dao.common import clean_text, paginate
+from database import Base
+from model.class_info import ClassInfo, ClassTeacherRelation
+from model.students_model import StudentDB
+
+# [修改说明] 原代码：DAO 从不存在的 database.serialize 导入函数，并把查重、老师绑定、物理删除和统计等业务混在 CRUD 中；修改原因：模块无法导入，物理删除破坏历史，且重复 ORM 模型会与其他模块冲突；修改为：保留小组 class_info_dao.py 文件名和兼容辅助函数，基础 CRUD 改为统一逻辑删除、筛选分页和关联计数，业务错误由 API 层处理。
 
 
 class BusinessError(Exception):
-    """自定义业务异常"""
+    """保留小组原异常类型，供尚未迁移的调用方兼容。"""
+
     def __init__(self, code: int, message: str):
         self.code = code
         self.message = message
+        super().__init__(message)
 
 
-def get_class(db: Session, class_no: str):
-    """根据班级编号（class_no）查班级"""
+def get_class_by_id(db: Session, class_id: int):
+    """按主键查询未删除班级。"""
+    return (
+        db.query(ClassInfo)
+        .filter(ClassInfo.id == class_id, ClassInfo.is_deleted == 0)
+        .first()
+    )
+
+
+def get_class_by_no(db: Session, class_no: str):
+    """按班号查询，包含已删除数据，用于保证班号全表唯一。"""
     return db.query(ClassInfo).filter(ClassInfo.class_no == class_no).first()
 
 
-def list_classes(db: Session, class_name: str = None, page: int = 1, page_size: int = 10):
-    """查询班级列表（支持模糊查询和分页）"""
-    query = db.query(ClassInfo)
-    if class_name:
+def get_class(db: Session, class_no: str):
+    """兼容小组原函数名：按班号查询未删除班级。"""
+    return (
+        db.query(ClassInfo)
+        .filter(
+            ClassInfo.class_no == class_no,
+            ClassInfo.is_deleted == 0,
+        )
+        .first()
+    )
+
+
+def list_classes(
+    db: Session,
+    page: int,
+    page_size: int,
+    class_no: str | None = None,
+    class_name: str | None = None,
+    class_status: str | None = None,
+):
+    """按班号、名称和状态筛选未删除班级，返回（当前页，总数）。"""
+    class_no = clean_text(class_no)
+    class_name = clean_text(class_name)
+    class_status = clean_text(class_status)
+
+    query = db.query(ClassInfo).filter(ClassInfo.is_deleted == 0)
+    if class_no is not None:
+        query = query.filter(ClassInfo.class_no == class_no)
+    if class_name is not None:
         query = query.filter(ClassInfo.class_name.like(f"%{class_name}%"))
-    total = query.count()
-    items = query.order_by(ClassInfo.class_no).offset((page - 1) * page_size).limit(page_size).all()
-    return total, items
+    if class_status is not None:
+        query = query.filter(ClassInfo.class_status == class_status)
+
+    query = query.order_by(ClassInfo.id.asc())
+    return paginate(query, page, page_size)
 
 
-def class_to_dict(cls: ClassInfo):
-    """将ORM对象序列化为字典，便于JSON响应"""
-    return serialize(cls)
+def list_all_classes(db: Session):
+    """返回全部未删除班级，供统计模块复用。"""
+    return (
+        db.query(ClassInfo)
+        .filter(ClassInfo.is_deleted == 0)
+        .order_by(ClassInfo.id.asc())
+        .all()
+    )
 
 
-def update_class(db: Session, class_no: str, payload):
-    """更新班级"""
-    cls = get_class(db, class_no)
-    if not cls:
-        raise BusinessError(404, "班级不存在")
-    exclude_unset = True
-    # 实现局部更新，只更新前端传递的字段
-    data = payload.model_dump(exclude_unset=True)
-    for key, value in data.items():
-        setattr(cls, key, value)
+def create_class(db: Session, data: dict):
+    """新增班级。"""
+    class_info = ClassInfo(**data)
+    db.add(class_info)
     db.commit()
-    db.refresh(cls)
-    return class_to_dict(cls)
+    db.refresh(class_info)
+    return class_info
 
 
-def delete_class(db: Session, class_no: str):
-    """删除班级（带删除保护 + 清理中间表）"""
-    # 1. 先查班级是否存在
-    cls = get_class(db, class_no)
-    if not cls:
-        raise BusinessError(404, "班级不存在")
+# [修改说明] 原代码：create_class 只能单独提交 classes 记录；修改原因：建班表单同时提交教学团队时，逐条调用关系接口会在中途失败后留下半成品；修改为：新增兼容事务函数，在一次提交中写班级及全部关系，原 create_class 保留给无排班调用方。
+def create_class_with_relations(db: Session, data: dict, relations: list[dict]):
+    """在同一事务中新增班级和初始老师关系。"""
+    class_info = ClassInfo(**data)
+    try:
+        db.add(class_info)
+        db.flush()
+        for relation_data in relations:
+            db.add(
+                ClassTeacherRelation(
+                    class_id=class_info.id,
+                    teacher_id=relation_data["teacher_id"],
+                    relation_type=relation_data["relation_type"],
+                )
+            )
+        db.commit()
+        db.refresh(class_info)
+        return class_info
+    except Exception:
+        db.rollback()
+        raise
 
-    # 2. 检查班级下有没有学生，有则拦截
-    student_count = db.query(Student).filter(Student.class_id == cls.id).count()
-    if student_count > 0:
-        raise BusinessError(400, f"该班级下仍有 {student_count} 名学生，不能删除")
 
-    # 3. 必须先删除中间表关联的老师记录，否则外键约束会导致删除失败报500！
-    db.query(ClassTeacherRelation).filter(ClassTeacherRelation.class_id == cls.id).delete()
+def update_class(db: Session, class_info: ClassInfo, changes: dict):
+    """只更新 changes 中出现的字段。"""
+    for field_name, value in changes.items():
+        setattr(class_info, field_name, value)
+    db.commit()
+    db.refresh(class_info)
+    return class_info
 
-    # 4. 清理完毕，才允许删除班级
-    db.delete(cls)
+
+def count_students_by_class(db: Session, class_id: int):
+    """统计班级下未删除学生数量。"""
+    return (
+        db.query(StudentDB)
+        .filter(
+            StudentDB.class_id == class_id,
+            StudentDB.is_deleted.is_(False),
+        )
+        .count()
+    )
+
+
+def count_relations_by_class(db: Session, class_id: int):
+    """统计班级的有效老师关系数量。"""
+    return (
+        db.query(ClassTeacherRelation)
+        .filter(
+            ClassTeacherRelation.class_id == class_id,
+            ClassTeacherRelation.is_deleted == 0,
+        )
+        .count()
+    )
+
+
+def delete_class(db: Session, class_info: ClassInfo):
+    """逻辑删除班级。"""
+    class_info.is_deleted = 1
+    class_info.deleted_at = datetime.now()
     db.commit()
 
+
+def class_to_dict(class_info: ClassInfo):
+    """兼容小组原辅助函数，不再依赖不存在的 database.serialize。"""
+    return {
+        column.name: getattr(class_info, column.name)
+        for column in ClassInfo.__table__.columns
+    }
+
+
+# [修改说明] 原代码：通过本文件中重复定义的简化 Teacher 模型逐条查询老师姓名；修改原因：该模型会与正式老师表重复映射，且形成 N+1 查询；修改为：兼容函数仅返回有效关系中的 teacher_id 和 relation_type，完整老师资料由后续排班接口统一联表返回。
 def get_class_with_teachers(db: Session, class_no: str):
-    """查询班级详情，并带出这个班的班主任和授课老师姓名"""
-    cls = get_class(db, class_no)
-    if not cls:
+    """兼容原班号详情函数，返回班级及有效关系的老师 ID。"""
+    class_info = get_class(db, class_no)
+    if class_info is None:
         return None
 
-    relations = db.query(ClassTeacherRelation).filter(
-        ClassTeacherRelation.class_id == cls.id,
-        ClassTeacherRelation.is_deleted == 0
-    ).all()
-
-    teachers = []
-    for rel in relations:
-        teacher = db.query(Teacher).filter(Teacher.id == rel.teacher_id).first()
-        if teacher:
-            teachers.append({
-                "teacher_name": teacher.name,
-                "relation_type": rel.relation_type
-            })
-
-    data = serialize(cls)
-    data["teachers"] = teachers
+    relations = (
+        db.query(ClassTeacherRelation)
+        .filter(
+            ClassTeacherRelation.class_id == class_info.id,
+            ClassTeacherRelation.is_deleted == 0,
+        )
+        .order_by(ClassTeacherRelation.id.asc())
+        .all()
+    )
+    data = class_to_dict(class_info)
+    data["teachers"] = [
+        {"teacher_id": relation.teacher_id, "relation_type": relation.relation_type}
+        for relation in relations
+    ]
     return data
 
 
-def create_class(db: Session, payload):
-    """新增班级（同时关联老师）"""
-    # 1. 检查班级编号是否重复
-    if get_class(db, payload.class_no):
-        raise BusinessError(400, "班级编号已存在")
-
-    # 2. 先把班级数据写进 classes 表，注意把 payload 里的老师 ID 排除掉
-    class_data = payload.model_dump(exclude={"head_teacher_id", "teacher_id"})
-    cls = ClassInfo(**class_data)
-    db.add(cls)
-    db.commit()
-    db.refresh(cls)  # 拿到自动生成的 id
-
-    # 3. 往中间表 class_teacher_relations 插入数据
-    if payload.head_teacher_id:
-        db.add(ClassTeacherRelation(
-            class_id=cls.id,
-            teacher_id=payload.head_teacher_id,
-            relation_type="班主任",
-            is_deleted=0
-        ))
-    if payload.teacher_id:
-        db.add(ClassTeacherRelation(
-            class_id=cls.id,
-            teacher_id=payload.teacher_id,
-            relation_type="授课老师",
-            is_deleted=0
-        ))
-    db.commit()
-
-    # 4. 返回带老师列表的详情
-    return get_class_with_teachers(db, payload.class_no)
-
+# [修改说明] 原代码：统计函数依赖本文件里重复定义的简化 Student/Score 模型；修改原因：启用正式学生和成绩模型后会产生表冲突；修改为：学生使用小组现有 StudentDB，成绩通过已注册的 scores 元数据读取，成绩模块尚未接入时安全返回零成绩。
 def get_class_statistics(db: Session, class_no: str):
-    """
-    查询班级及格率统计（真实数据版）
-    """
-    # 1. 先查班级
-    cls = get_class(db, class_no)
-    if not cls:
+    """保留小组原扩展统计接口；成绩模型接入前按无成绩处理。"""
+    class_info = get_class(db, class_no)
+    if class_info is None:
         return None
 
-    # 2. 查该班级下的所有学生
-    students = db.query(Student).filter(Student.class_id == cls.id).all()
-    student_ids = [s.id for s in students]
+    student_ids = [
+        row.id
+        for row in db.query(StudentDB.id)
+        .filter(
+            StudentDB.class_id == class_info.id,
+            StudentDB.is_deleted.is_(False),
+        )
+        .all()
+    ]
 
-    if not student_ids:
-        return {
-            "class_no": class_no, "class_name": cls.class_name,
-            "total_students": 0, "total_scores": 0,
-            "pass_count": 0, "pass_rate": "0%"
-        }
+    score_table = Base.metadata.tables.get("scores")
+    score_values = []
+    if student_ids and score_table is not None:
+        statement = select(score_table.c.score).where(
+            score_table.c.student_id.in_(student_ids),
+            score_table.c.is_deleted == 0,
+        )
+        score_values = list(db.execute(statement).scalars())
 
-    # 3. 查这些学生的有效成绩（必须过滤 is_deleted == 0，不然会把作废成绩算进去）
-    scores = db.query(Score).filter(
-        Score.student_id.in_(student_ids),
-        Score.is_deleted == 0
-    ).all()
-
-    if not scores:
-        return {
-            "class_no": class_no, "class_name": cls.class_name,
-            "total_students": len(student_ids), "total_scores": 0,
-            "pass_count": 0, "pass_rate": "0%"
-        }
-
-    # 4. 遍历成绩，统计及格人次（>=60 分算及格）
-    pass_count = 0
-    for record in scores:
-        if record.score and record.score >= 60:
-            pass_count += 1
-
-    # 5. 计算及格率，保留两位小数
-    pass_rate = round(pass_count / len(scores) * 100, 2)
-
+    pass_count = sum(1 for score in score_values if score is not None and score >= 60)
+    pass_rate = round(pass_count / len(score_values) * 100, 2) if score_values else 0
     return {
-        "class_no": class_no,
-        "class_name": cls.class_name,
-        "total_students": len(student_ids),  # 班级总人数
-        "total_scores": len(scores),          # 有效考试人次
-        "pass_count": pass_count,             # 及格人次
-        "pass_rate": f"{pass_rate}%"          # 及格率
+        "class_no": class_info.class_no,
+        "class_name": class_info.class_name,
+        "total_students": len(student_ids),
+        "total_scores": len(score_values),
+        "pass_count": pass_count,
+        "pass_rate": f"{pass_rate}%",
     }

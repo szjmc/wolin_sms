@@ -13,8 +13,9 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# 第 1 步：加载 backend/.env 文件中的配置（文件不存在也没关系）
-# 这里明确指定 backend 目录下的 .env，避免误读到其他目录的配置文件
+# [修改说明] 原注释固定写成 backend/.env；修改原因：backend-bak 已可独立运行，固定目录名会让配置步骤产生歧义；修改为：始终读取当前后端目录（BASE_DIR）中的 .env。
+# 第 1 步：加载当前后端目录的 .env（文件不存在也没关系）
+# 明确指定当前文件所在目录，避免误读项目根目录或另一套后端的配置
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 

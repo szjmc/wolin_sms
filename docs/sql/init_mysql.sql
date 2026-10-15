@@ -4,8 +4,7 @@
 -- 说明：
 --   1. 所有表主键 id 均为 BIGINT AUTO_INCREMENT
 --   2. 所有表都有 is_deleted / deleted_at / created_at / updated_at 公共字段
---   3. 模型里已删除 __table_args__，所以这里不再建普通索引；
---      业务编号的唯一约束（UNIQUE）保留，因为防重是业务正确性要求
+--   3. 业务编号保留 UNIQUE 防重；高频历史查询按模块需要建立“关联 ID + 逻辑删除”组合索引
 --   4. 后端启动时 Base.metadata.create_all() 也会自动建表，本脚本供 DBA 审核或手动初始化使用
 --   5. 请勿在生产库直接执行 DROP/重建；升级已有数据库请编写 ALTER 脚本并先备份
 -- =====================================================================
@@ -37,6 +36,8 @@ CREATE TABLE teachers (
 	contact_info VARCHAR(150) COMMENT '补充联系方式，如微信、邮箱',
 	teaching_years NUMERIC(5, 2) NOT NULL COMMENT '教学年限，可为小数' DEFAULT '0',
 	teacher_status VARCHAR(20) NOT NULL COMMENT '老师状态：在职/离职',
+	-- [修改说明] 原代码：老师表只有任职状态；修改原因：排班需独立维护可授课/暂停授课；修改为：新增默认“可授课”的 teaching_status，和 backend-bak ORM 保持一致。
+	teaching_status VARCHAR(20) NOT NULL COMMENT '授课状态：可授课/暂停授课' DEFAULT '可授课',
 	is_deleted TINYINT NOT NULL COMMENT '逻辑删除：0=未删除，1=已删除' DEFAULT '0',
 	deleted_at DATETIME COMMENT '逻辑删除时间',
 	created_at DATETIME NOT NULL COMMENT '创建时间',
@@ -94,12 +95,18 @@ CREATE TABLE employment_records (
 	position VARCHAR(100) COMMENT '就业岗位',
 	salary_amount NUMERIC(12, 2) NOT NULL COMMENT '薪资金额（原始值）',
 	salary_period ENUM('MONTH','YEAR') NOT NULL COMMENT '薪资周期：MONTH=月薪，YEAR=年薪',
+	-- [修改说明] 原代码：就业表未保存就业前经历；修改原因：若每次联查学生当前档案，历史薪资对比会随档案修改；修改为：保存创建就业记录时的薪资、岗位和原学历毕业日期快照。
+	past_salary_amount NUMERIC(12, 2) COMMENT '创建就业记录时的过往薪资金额快照',
+	past_salary_period ENUM('MONTH','YEAR') COMMENT '过往薪资周期快照：MONTH/YEAR',
+	previous_position VARCHAR(100) COMMENT '创建就业记录时的以往岗位快照',
+	past_graduation_date DATE COMMENT '创建就业记录时的原学历毕业日期快照',
 	is_deleted TINYINT NOT NULL COMMENT '逻辑删除：0=未删除，1=已删除' DEFAULT '0',
 	deleted_at DATETIME COMMENT '逻辑删除时间',
 	created_at DATETIME NOT NULL COMMENT '创建时间',
 	updated_at DATETIME NOT NULL COMMENT '更新时间',
 	PRIMARY KEY (id),
-	FOREIGN KEY(student_id) REFERENCES students (id)
+	FOREIGN KEY(student_id) REFERENCES students (id),
+	KEY idx_emp_student_deleted (student_id, is_deleted)
 )ENGINE=InnoDB COMMENT='就业记录表' CHARSET=utf8mb4;
 
 CREATE TABLE scores (

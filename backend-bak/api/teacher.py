@@ -11,9 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from api.common import ERROR_RESPONSES, page_data, success
-from dao import class_teacher_dao, teacher_dao
+from api.class_teacher_api import to_relation_overview
+from dao import class_teacher_dao
+# [修改说明] 原代码：导入不存在的 dao.teacher_dao；修改原因：小组现有 DAO 文件名是 dao/teacher.py，导致老师路由模块无法加载；修改为：保留小组文件名并以 teacher_dao 别名导入，不改动已有老师 CRUD 调用结构。
+from dao import teacher as teacher_dao
 from database import get_db
-from scheme.common import ApiResponse, PageData, TeacherStatus
+from scheme.class_teacher import TeacherDetailRead
+from scheme.common import ApiResponse, PageData, TeacherStatus, TeachingStatus
 from scheme.teacher import TeacherCreate, TeacherRead, TeacherUpdate
 
 router = APIRouter(tags=["老师管理"], responses=ERROR_RESPONSES)
@@ -36,6 +40,8 @@ def list_teachers(
     name: str | None = Query(default=None, description="老师姓名（模糊匹配）"),
     specialty: str | None = Query(default=None, description="教学专长（模糊匹配）"),
     teacher_status: TeacherStatus | None = Query(default=None, description="老师状态"),
+    # [修改说明] 原代码：GET /teachers 不接收 teaching_status；修改原因：排班选择器需同时筛选在职且可授课老师；修改为：增加枚举化查询条件，原有筛选保持不变。
+    teaching_status: TeachingStatus | None = Query(default=None, description="授课状态"),
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页条数，默认 20，最大 100"),
     db: Session = Depends(get_db),
@@ -44,9 +50,19 @@ def list_teachers(
     status_value = None
     if teacher_status is not None:
         status_value = teacher_status.value
+    teaching_status_value = None
+    if teaching_status is not None:
+        teaching_status_value = teaching_status.value
 
     teachers, total = teacher_dao.list_teachers(
-        db, page, page_size, teacher_no=teacher_no, name=name, specialty=specialty, teacher_status=status_value
+        db,
+        page,
+        page_size,
+        teacher_no=teacher_no,
+        name=name,
+        specialty=specialty,
+        teacher_status=status_value,
+        teaching_status=teaching_status_value,
     )
 
     items = []
@@ -55,12 +71,25 @@ def list_teachers(
     return success(page_data(items, total, page, page_size))
 
 
-@router.get("/teachers/{teacher_id}", response_model=ApiResponse[TeacherRead], summary="老师详情")
+# [修改说明] 原代码：老师详情只返回 TeacherRead；修改原因：前端详情页需要展示当前班级与角色，且不能再逐班查询拼装；修改为：响应扩展为 TeacherDetailRead，并联表附带有效 relations，基础老师字段完全保留。
+@router.get("/teachers/{teacher_id}", response_model=ApiResponse[TeacherDetailRead], summary="老师详情")
 def get_teacher(teacher_id: int, db: Session = Depends(get_db)):
     teacher = teacher_dao.get_teacher_by_id(db, teacher_id)
     if teacher is None:
         raise HTTPException(status_code=404, detail="老师不存在或已删除")
-    return success(TeacherRead.model_validate(teacher))
+
+    detail = TeacherDetailRead.model_validate(
+        {
+            **TeacherRead.model_validate(teacher).model_dump(),
+            "relations": [
+                to_relation_overview(relation, class_info, related_teacher)
+                for relation, class_info, related_teacher in class_teacher_dao.list_teacher_relation_rows(
+                    db, teacher_id
+                )
+            ],
+        }
+    )
+    return success(detail)
 
 
 @router.patch("/teachers/{teacher_id}", response_model=ApiResponse[TeacherRead], summary="更新老师（只传需要修改的字段）")
