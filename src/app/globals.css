@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+:root { color-scheme: light; }
+body { font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; color: #172033; }
+a { text-decoration: none; }
+button, select { cursor: pointer; }
+input[type="checkbox"] { accent-color: #635bff; width: 15px; height: 15px; }
+button:focus-visible, a:focus-visible { outline: 2px solid #818cf8; outline-offset: 3px; }
+::selection { background: #e0e7ff; color: #4338ca; }
+@media print { aside, header, footer, .no-print { display: none !important; } main { padding: 0 !important; } }
