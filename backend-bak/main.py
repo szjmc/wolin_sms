@@ -158,6 +158,12 @@ async def unknown_exception_handler(request: Request, exc: Exception):
 # ======================================================================
 API_PREFIX = "/api/v1"
 
+# 原入口只注册了旧学生路由，前端实际需要的认证和用户接口因此不存在。
+# 认证路由必须在上方 create_all 之后再导入：本轮已确认数据库暂不自动迁移，
+# 这样 User 模型不会被纳入启动时的旧表 create_all，users 表由外部 SQL/部署流程准备。
+from api import auth_api
+
+app.include_router(auth_api.router, prefix=API_PREFIX)
 # app.include_router(class_api.router, prefix=API_PREFIX)
 # app.include_router(teacher_api.router, prefix=API_PREFIX)
 # app.include_router(class_teacher_api.router, prefix=API_PREFIX)
