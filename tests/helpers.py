@@ -50,13 +50,17 @@ def create_teacher(client, teacher_no, **extra):
 
 
 def create_student(client, student_no, class_id, **extra):
-    """快捷新增学生，返回 data。"""
+    """
+    快捷新增学生，返回 data。
+    默认给一个培训结课日期（2025-12-31），这样就业相关测试可以正常登记就业信息。
+    """
     body = {
         "student_no": student_no,
         "class_id": class_id,
         "name": extra.pop("name", "学生" + student_no),
         "birth_date": extra.pop("birth_date", "2000-01-01"),
         "gender": extra.pop("gender", "男"),
+        "training_graduation_date": extra.pop("training_graduation_date", "2025-12-31"),
     }
     body.update(extra)
     return ok_data(client.post(API + "/students", json=body), 201)

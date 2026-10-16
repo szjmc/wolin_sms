@@ -140,6 +140,22 @@ async function prepareDatabase() {
   await db.execute(sql`UPDATE class_teacher_relations r SET is_deleted = 1, deleted_at = now() WHERE r.is_deleted = 0 AND r.id NOT IN (SELECT MIN(r2.id) FROM class_teacher_relations r2 JOIN classes c ON c.id = r2.class_id WHERE r2.is_deleted = 0 AND c.is_deleted = 0 AND c.class_status <> '已结课' GROUP BY r2.teacher_id) AND EXISTS (SELECT 1 FROM classes c2 WHERE c2.id = r.class_id AND c2.is_deleted = 0 AND c2.class_status <> '已结课')`);
   // 3) 快照列改为必填（前面已补齐空值，这里不会失败）
   await db.execute(sql`ALTER TABLE employment_records ALTER COLUMN class_no_snapshot SET NOT NULL`);
+  // 新增字段/新表（幂等，可重复执行）
+  await db.execute(sql`ALTER TABLE employment_records ADD COLUMN IF NOT EXISTS offer_status varchar(20) NOT NULL DEFAULT '待处理'`);
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS users (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    username varchar(50) NOT NULL UNIQUE,
+    password_hash varchar(255) NOT NULL,
+    display_name varchar(50) NOT NULL,
+    role varchar(20) NOT NULL DEFAULT 'viewer',
+    class_id bigint,
+    token varchar(64),
+    is_active smallint NOT NULL DEFAULT 1,
+    is_deleted smallint NOT NULL DEFAULT 0,
+    deleted_at timestamp,
+    created_at timestamp NOT NULL DEFAULT now(),
+    updated_at timestamp NOT NULL DEFAULT now()
+  )`);
   const existing = await db.select({ id: classes.id }).from(classes).limit(1);
   if (existing.length === 0) await seedDemo();
 }

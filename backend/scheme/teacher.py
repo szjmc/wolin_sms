@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scheme.common import Gender, TeacherStatus, check_not_null
+from scheme.common import Gender, TeacherStatus, TeachingStatus, check_not_null
 
 
 class TeacherCreate(BaseModel):
@@ -26,6 +26,7 @@ class TeacherCreate(BaseModel):
         description="教学年限，允许小数（如 5.5），不得为负", examples=[5.5],
     )
     teacher_status: TeacherStatus = Field(default="在职", description="老师状态：在职/离职")
+    teaching_status: TeachingStatus = Field(default="可授课", description="授课状态：可授课/暂停授课")
 
 
 class TeacherUpdate(BaseModel):
@@ -40,6 +41,7 @@ class TeacherUpdate(BaseModel):
     contact_info: str | None = Field(default=None, max_length=150, description="补充联系方式")
     teaching_years: Decimal | None = Field(default=None, ge=0, max_digits=5, decimal_places=2, description="教学年限，不得为负")
     teacher_status: TeacherStatus | None = Field(default=None, description="老师状态：在职/离职")
+    teaching_status: TeachingStatus | None = Field(default=None, description="授课状态：可授课/暂停授课")
 
     @model_validator(mode="after")
     def check_required_fields(self):
@@ -62,5 +64,6 @@ class TeacherRead(BaseModel):
     contact_info: str | None
     teaching_years: Decimal
     teacher_status: str
+    teaching_status: str
     created_at: datetime
     updated_at: datetime

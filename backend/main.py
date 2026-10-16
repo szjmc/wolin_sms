@@ -28,6 +28,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import model  # noqa: F401  导入全部 ORM 模型，create_all 才能创建所有表
 from api import (
+    auth_api,
     class_api,
     class_teacher_api,
     employment_record_api,
@@ -70,6 +71,7 @@ API_DESCRIPTION = """
 """
 
 TAGS_METADATA = [
+    {"name": "登录与用户", "description": "登录、注册、退出登录、用户管理（bcrypt 密码加密）"},
     {"name": "班级管理", "description": "班级的新增、查询、更新、逻辑删除"},
     {"name": "老师管理", "description": "老师档案维护（手机号、补充联系方式、教学年限）"},
     {"name": "班级老师关系", "description": "维护班主任、授课老师与班级的关系（关系也是逻辑删除）"},
@@ -159,6 +161,7 @@ async def unknown_exception_handler(request: Request, exc: Exception):
 # ======================================================================
 API_PREFIX = "/api/v1"
 
+app.include_router(auth_api.router, prefix=API_PREFIX)
 app.include_router(class_api.router, prefix=API_PREFIX)
 app.include_router(teacher_api.router, prefix=API_PREFIX)
 app.include_router(class_teacher_api.router, prefix=API_PREFIX)

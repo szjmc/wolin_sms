@@ -40,16 +40,48 @@ from fastapi.testclient import TestClient  # noqa: E402
 from database import Base, engine  # noqa: E402
 from main import app  # noqa: E402
 
+API = "/api/v1"
+
 
 @pytest.fixture(scope="session", autouse=True)
 def reset_database():
-    """整个测试会话开始时，清空并重建全部表，保证环境干净。"""
+    """
+    整个测试会话开始时：清空重建全部表，并先建好一个管理员账号。
+    先建管理员是因为"系统第一个账号自动成为管理员"，顺序固定了结果才稳定。
+    """
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    bootstrap = TestClient(app)
+    bootstrap.post(API + "/auth/register", json={"username": "admin", "password": "admin123", "display_name": "系统管理员"})
     yield
 
 
 @pytest.fixture()
-def client():
-    """每个用例拿到一个 FastAPI 测试客户端。"""
+def anon_client():
+    """不带登录态的客户端：用来测试"没登录会被拒绝"这类用例。"""
     return TestClient(app)
+
+
+@pytest.fixture()
+def client(reset_database):
+    """管理员客户端：默认所有写操作都带管理员令牌。"""
+    return make_client("admin", "admin123")
+
+
+def make_client(username: str, password: str):
+    """登录并返回带令牌的客户端（权限用例里造各种角色用）"""
+    test_client = TestClient(app)
+    response = test_client.post(API + "/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200, response.text
+    test_client.headers.update({"Authorization": f"Bearer {response.json()['data']['token']}"})
+    return test_client
+
+
+def register_user(client, username, password, display_name, role="viewer", class_id=None):
+    """用管理员客户端注册一个账号，返回用户数据"""
+    body = {"username": username, "password": password, "display_name": display_name, "role": role}
+    if class_id is not None:
+        body["class_id"] = class_id
+    response = client.post(API + "/auth/register", json=body)
+    assert response.status_code == 201, response.text
+    return response.json()["data"]

@@ -12,6 +12,9 @@ async function run(method: string, request: Request, ctx: Ctx) {
       const headers = new Headers();
       const contentType = request.headers.get("Content-Type");
       if (contentType) headers.set("Content-Type", contentType);
+      // 必须转发令牌，否则 Python 登录成功后的 /auth/me 总是返回 401。
+      const authorization = request.headers.get("Authorization");
+      if (authorization) headers.set("Authorization", authorization);
       const upstream = await fetch(`${backend.replace(/\/$/, "")}/api/v1/${slug.map(encodeURIComponent).join("/")}${url.search}`, {
         method, headers, body: ["GET", "HEAD"].includes(method) ? undefined : await request.arrayBuffer(),
         cache: "no-store", signal: AbortSignal.timeout(60000),

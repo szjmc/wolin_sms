@@ -97,7 +97,14 @@ class StudentRead(BaseModel):
     education: str | None
     consultant_no: str | None
     birth_date: date
-    age: int = Field(description="年龄：服务端根据出生日期实时计算，数据库不保存；出生日期必填所以年龄一定有值")
+    age: int = Field(
+        default=0,
+        description="年龄：服务端根据出生日期实时计算后填入，数据库不保存；出生日期必填所以年龄一定有值",
+    )
     gender: Gender
+    employment_status: str = Field(
+        default="待就业",
+        description="就业状态：已就业=有一条已接受的 Offer；待就业=还没有接受任何 Offer",
+    )
     created_at: datetime
     updated_at: datetime

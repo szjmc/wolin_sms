@@ -4,7 +4,7 @@ export interface Student {
   class_name?: string | null; gender: string; birth_date: string; age: number;
   hometown: string | null; graduate_school: string | null; major: string | null;
   education: string | null; consultant_no: string | null; avatar_url: string | null;
-  training_enrollment_date: string | null; training_graduation_date: string | null;
+  training_enrollment_date: string | null; training_graduation_date: string | null; employment_status: string;
   created_at?: string; updated_at?: string;
 }
 export interface Teacher {
@@ -35,7 +35,7 @@ export interface Employment {
   id: number; student_id: number; student_no?: string; student_name_snapshot: string;
   class_id?: number | null; class_no_snapshot: string;
   company_name: string; employment_city: string | null; position: string | null;
-  salary_amount: string; salary_period: string; annualized_salary: string;
+  salary_amount: string; salary_period: string; annualized_salary: string; offer_status: string;
   employment_open_date: string | null; offer_date: string | null;
   past_salary_amount: string | null; past_salary_period: string | null;
   previous_position: string | null; past_graduation_date: string | null;

@@ -19,21 +19,25 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from api.common import ERROR_RESPONSES, calculate_annualized_salary, page_data, success
+from api.common import ERROR_RESPONSES, get_current_user, calculate_annualized_salary, get_current_user, page_data, success
+from api.permissions import check_permission
 from dao import class_dao, employment_record_dao, student_dao
 from database import get_db
 from model.employment_record import EmploymentRecord
+from model.user import User
 from scheme.common import ApiResponse, PageData, SalaryPeriod
 from scheme.employment_record import EmploymentCreate, EmploymentRead, EmploymentUpdate
 
-router = APIRouter(tags=["就业记录"], responses=ERROR_RESPONSES)
+router = APIRouter(tags=["就业记录"], responses=ERROR_RESPONSES, dependencies=[Depends(get_current_user)])
 
 
 def to_employment_read(record: EmploymentRecord) -> EmploymentRead:
     """把就业记录 ORM 对象转换成响应模型，并计算年薪等价值"""
+    # 年薪等价值不是数据库字段，用 model_copy(update=...) 补上去
     employment_read = EmploymentRead.model_validate(record)
-    employment_read.annualized_salary = calculate_annualized_salary(record.salary_amount, record.salary_period)
-    return employment_read
+    return employment_read.model_copy(
+        update={"annualized_salary": calculate_annualized_salary(record.salary_amount, record.salary_period)}
+    )
 
 
 def get_visible_record(db: Session, record_id: int):
@@ -55,25 +59,39 @@ def get_visible_record(db: Session, record_id: int):
     status_code=201,
     summary="新增一段就业经历（不会覆盖该学生已有的就业记录）",
 )
-def create_employment_record(payload: EmploymentCreate, db: Session = Depends(get_db)):
+def create_employment_record(
+    payload: EmploymentCreate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     # 第 1 步：学生必须存在且未删除
     student = student_dao.get_student_by_id(db, payload.student_id)
     if student is None:
         raise HTTPException(status_code=404, detail="学生不存在或已删除")
 
-    # 第 2 步：查询学生当前所在的班级，用来生成"班级编号快照"
+    # 第 2 步：权限校验——班主任/授课老师只能给自己班的学生登记就业
+    check_permission(current, "employment", student.class_id)
+
+    # 第 3 步：学生必须已经结课才能新增就业信息
+    if student.training_graduation_date is None:
+        raise HTTPException(status_code=400, detail="该学生尚未结课，不能新增就业信息")
+    # 就业开放日期必须大于等于学生的结课日期（时间线不能倒着走）
+    if payload.employment_open_date is not None and payload.employment_open_date < student.training_graduation_date:
+        raise HTTPException(status_code=400, detail="就业开放日期不能早于学生培训结课日期")
+
+    # 第 4 步：查询学生当前所在的班级，用来生成"班级编号快照"
     # 学生一定有所属班级（建档时必填，删班级前会先检查还有没有学生），
     # 所以正常情况下这里一定能取到；取不到说明数据异常，直接报 404
     class_info = class_dao.get_class_by_id(db, student.class_id)
     if class_info is None:
         raise HTTPException(status_code=404, detail="学生所属班级不存在或已删除")
 
-    # 第 3 步：组装数据——快照字段由服务端填写，客户端不能传
+    # 第 5 步：组装数据——快照字段由服务端填写，客户端不能传
     data = payload.model_dump()
     data["student_name_snapshot"] = student.name
     data["class_no_snapshot"] = class_info.class_no
 
-    # 第 4 步：新增一条记录（学生信息、快照、就业信息在同一个事务里一起提交）
+    # 第 6 步：新增一条记录（学生信息、快照、就业信息在同一个事务里一起提交）
     record = employment_record_dao.create_record(db, data)
     return success(to_employment_read(record))
 
@@ -196,8 +214,15 @@ def get_employment_record(record_id: int, db: Session = Depends(get_db)):
     response_model=ApiResponse[EmploymentRead],
     summary="修改单条就业记录（不影响该学生的其他就业记录）",
 )
-def update_employment_record(record_id: int, payload: EmploymentUpdate, db: Session = Depends(get_db)):
+def update_employment_record(
+    record_id: int,
+    payload: EmploymentUpdate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     record = get_visible_record(db, record_id)
+    # 权限：班主任/授课老师只能改自己班学生的就业记录
+    check_permission(current, "employment", student_dao.get_student_by_id(db, record.student_id).class_id)
 
     # 只取客户端本次提交的字段
     changes = payload.model_dump(exclude_unset=True)
@@ -216,7 +241,47 @@ def update_employment_record(record_id: int, payload: EmploymentUpdate, db: Sess
 
 
 @router.delete("/employment-records/{record_id}", status_code=204, summary="逻辑删除单条就业记录")
-def delete_employment_record(record_id: int, db: Session = Depends(get_db)):
+def delete_employment_record(
+    record_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     record = get_visible_record(db, record_id)
+    check_permission(current, "employment", student_dao.get_student_by_id(db, record.student_id).class_id)
     employment_record_dao.delete_record(db, record)
     return Response(status_code=204)
+
+
+@router.post(
+    "/employment-records/{record_id}/accept",
+    response_model=ApiResponse[EmploymentRead],
+    summary="接受这条 Offer（学生变为已就业，同学生其他 Offer 自动改为已拒绝）",
+)
+def accept_offer(record_id: int, current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 第 1 步：记录可见 + 权限校验
+    record = get_visible_record(db, record_id)
+    student = student_dao.get_student_by_id(db, record.student_id)
+    check_permission(current, "employment", student.class_id)
+
+    # 第 2 步：把这条改成"已接受"
+    record = employment_record_dao.set_offer_status(db, record, "已接受")
+
+    # 第 3 步：同一学生其他就业记录全部改成"已拒绝"（保留记录本身，不删除）
+    employment_record_dao.reject_other_offers(db, record)
+    return success(to_employment_read(record))
+
+
+@router.post(
+    "/employment-records/{record_id}/reject",
+    response_model=ApiResponse[EmploymentRead],
+    summary="拒绝这条 Offer（学生没有其他已接受 Offer 时回到待就业）",
+)
+def reject_offer(record_id: int, current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 第 1 步：记录可见 + 权限校验
+    record = get_visible_record(db, record_id)
+    student = student_dao.get_student_by_id(db, record.student_id)
+    check_permission(current, "employment", student.class_id)
+
+    # 第 2 步：把这条改成"已拒绝"；其他记录不动，学生状态由接口层根据是否有"已接受"动态判断
+    record = employment_record_dao.set_offer_status(db, record, "已拒绝")
+    return success(to_employment_read(record))

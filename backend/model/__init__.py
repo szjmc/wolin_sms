@@ -14,6 +14,7 @@ from model.past_experience import StudentPastExperience
 from model.score import Score
 from model.student import Student
 from model.teacher import Teacher
+from model.user import User
 
 __all__ = [
     "ClassInfo",
@@ -23,4 +24,5 @@ __all__ = [
     "Score",
     "Student",
     "Teacher",
+    "User",
 ]

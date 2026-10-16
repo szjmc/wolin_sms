@@ -34,6 +34,7 @@ def list_teachers(
     name: str | None = None,
     specialty: str | None = None,
     teacher_status: str | None = None,
+    teaching_status: str | None = None,
 ):
     """
     分页查询未删除的老师，返回 (当前页老师列表, 总条数)。
@@ -43,6 +44,7 @@ def list_teachers(
     name = clean_text(name)
     specialty = clean_text(specialty)
     teacher_status = clean_text(teacher_status)
+    teaching_status = clean_text(teaching_status)
 
     query = db.query(Teacher).filter(Teacher.is_deleted == 0)
     if teacher_no is not None:
@@ -53,6 +55,8 @@ def list_teachers(
         query = query.filter(Teacher.specialty.like(f"%{specialty}%"))
     if teacher_status is not None:
         query = query.filter(Teacher.teacher_status == teacher_status)
+    if teaching_status is not None:
+        query = query.filter(Teacher.teaching_status == teaching_status)
 
     query = query.order_by(Teacher.id.asc())
     return paginate(query, page, page_size)

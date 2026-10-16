@@ -34,6 +34,7 @@ class EmploymentCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_dates(self):
+        # 规则 0：学生必须结课后才能新增就业信息（学生结课日期在数据库里，接口层校验）
         # 规则 1：就业还没开放就不能有 Offer（先开放再拿 Offer，这是业务顺序）
         if self.offer_date is not None and self.employment_open_date is None:
             raise ValueError("就业尚未开放，填写 Offer 日期之前请先填写就业开放日期")
@@ -85,6 +86,10 @@ class EmploymentRead(BaseModel):
     position: str | None
     salary_amount: Decimal
     salary_period: SalaryPeriod
-    annualized_salary: Decimal = Field(description="年薪等价值（服务端计算）：月薪×12 或 年薪本身")
+    offer_status: str = Field(description="Offer 状态：待处理/已接受/已拒绝；一名学生多个 Offer 选中一条其余自动拒绝")
+    annualized_salary: Decimal = Field(
+        default=Decimal("0"),
+        description="年薪等价值（服务端计算后填入）：月薪×12 或 年薪本身",
+    )
     created_at: datetime
     updated_at: datetime

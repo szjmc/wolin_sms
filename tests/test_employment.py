@@ -231,6 +231,67 @@ def test_offer_same_day_as_open_allowed(client):
     assert data["offer_date"] == "2026-02-01"
 
 
+def test_cannot_add_employment_before_graduation(client):
+    """学生没结课就不能登记就业信息。"""
+    class_id = create_class(client, "EM-C-31")["id"]
+    student = create_student(client, "EM-S-31", class_id, training_graduation_date=None)
+    body = {"student_id": student["id"], "company_name": "A", "salary_amount": 10000, "salary_period": "MONTH", "employment_open_date": "2026-03-01"}
+    error = assert_error(client.post(API + "/employment-records", json=body), 400)
+    assert "尚未结课" in error["message"]
+
+
+def test_employment_open_date_cannot_be_before_graduation(client):
+    """就业开放日期必须大于等于学生的培训结课日期。"""
+    class_id = create_class(client, "EM-C-32")["id"]
+    student = create_student(client, "EM-S-32", class_id, training_graduation_date="2026-03-31")
+    body = {"student_id": student["id"], "company_name": "A", "salary_amount": 10000, "salary_period": "MONTH", "employment_open_date": "2026-03-30"}
+    error = assert_error(client.post(API + "/employment-records", json=body), 400)
+    assert "结课" in error["message"]
+
+
+def test_employment_open_date_same_day_as_graduation(client):
+    """就业开放日期和结课日期同一天，允许。"""
+    class_id = create_class(client, "EM-C-33")["id"]
+    student = create_student(client, "EM-S-33", class_id, training_graduation_date="2026-03-31")
+    data = _create_emp(client, student["id"], "同日公司", 10000, "MONTH", employment_open_date="2026-03-31", offer_date="2026-04-01")
+    assert data["employment_open_date"] == "2026-03-31"
+
+
+def test_offer_status_accept_and_reject(client):
+    """一个学生多个 Offer：接受一条，其余自动改为已拒绝；学生状态随之变化。"""
+    class_id = create_class(client, "EM-C-34")["id"]
+    student = create_student(client, "EM-S-34", class_id, training_graduation_date="2026-01-01")
+    first = _create_emp(client, student["id"], "公司A", 10000, "MONTH", employment_open_date="2026-02-01", offer_date="2026-02-10")
+    second = _create_emp(client, student["id"], "公司B", 12000, "MONTH", employment_open_date="2026-02-05", offer_date="2026-02-15")
+    third = _create_emp(client, student["id"], "公司C", 14000, "MONTH", employment_open_date="2026-02-08", offer_date="2026-02-20")
+    assert first["offer_status"] == "待处理"
+
+    # 选中第二条：这条已接受，另外两条已拒绝
+    accepted = ok_data(client.post(f"{API}/employment-records/{second['id']}/accept"))
+    assert accepted["offer_status"] == "已接受"
+    assert ok_data(client.get(f"{API}/employment-records/{first['id']}"))["offer_status"] == "已拒绝"
+    assert ok_data(client.get(f"{API}/employment-records/{third['id']}"))["offer_status"] == "已拒绝"
+
+    # 学生状态变为已就业
+    assert ok_data(client.get(f"{API}/students/{student['id']}"))["employment_status"] == "已就业"
+
+
+def test_offer_status_reject_keeps_pending(client):
+    """拒绝其中一条，不影响其它待处理记录；没有已接受 Offer 时学生仍是待就业。"""
+    class_id = create_class(client, "EM-C-35")["id"]
+    student = create_student(client, "EM-S-35", class_id, training_graduation_date="2026-01-01")
+    first = _create_emp(client, student["id"], "公司D", 10000, "MONTH", employment_open_date="2026-02-01", offer_date="2026-02-10")
+    second = _create_emp(client, student["id"], "公司E", 11000, "MONTH", employment_open_date="2026-02-02", offer_date="2026-02-11")
+    rejected = ok_data(client.post(f"{API}/employment-records/{first['id']}/reject"))
+    assert rejected["offer_status"] == "已拒绝"
+    assert ok_data(client.get(f"{API}/employment-records/{second['id']}"))["offer_status"] == "待处理"
+    assert ok_data(client.get(f"{API}/students/{student['id']}"))["employment_status"] == "待就业"
+
+
+def test_accept_offer_not_found(client):
+    assert_error(client.post(f"{API}/employment-records/999999/accept"), 404)
+
+
 def test_zero_salary_allowed(client):
     class_id = create_class(client, "EM-C-21")["id"]
     student = create_student(client, "EM-S-21", class_id)

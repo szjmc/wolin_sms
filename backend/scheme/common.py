@@ -78,11 +78,36 @@ class TeacherStatus(str, Enum):
     LEFT = "离职"
 
 
+class TeachingStatus(str, Enum):
+    """老师授课状态"""
+
+    AVAILABLE = "可授课"
+    PAUSED = "暂停授课"
+
+
 class RelationType(str, Enum):
     """班级与老师的关系类型"""
 
     HEAD_TEACHER = "班主任"
     LECTURER = "授课老师"
+
+
+class UserRole(str, Enum):
+    """账号角色（见 api/permissions.py 的权限表）"""
+
+    ADMIN = "admin"
+    HEAD_TEACHER = "head_teacher"
+    TEACHER = "teacher"
+    EMPLOYMENT = "employment"
+    VIEWER = "viewer"
+
+
+class OfferStatus(str, Enum):
+    """就业记录的 Offer 状态"""
+
+    PENDING = "待处理"
+    ACCEPTED = "已接受"
+    REJECTED = "已拒绝"
 
 
 def check_not_null(model: BaseModel, field_names: list[str]):

@@ -1,0 +1,39 @@
+"use client";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { ArrowRight, ArrowUpRight, BookOpenCheck, BriefcaseBusiness, CalendarDays, GraduationCap, School, Users } from "lucide-react";
+import { api, type PageResult } from "@/lib/client";
+import type { ClassItem, ScoreSummary, Student } from "@/lib/contracts";
+import { Badge, ErrorText, PageHeader, StatCard } from "@/components/ui";
+
+type Overview = { student_total: number; class_total: number; teacher_total: number; employment_total: number };
+export default function DashboardPage() {
+  const [students, setStudents] = useState<PageResult<Student> | null>(null);
+  const [classes, setClasses] = useState<PageResult<ClassItem> | null>(null);
+  const [summary, setSummary] = useState<ScoreSummary | null>(null);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    Promise.all([
+      api<PageResult<Student>>("/api/v1/students?page_size=6"),
+      api<PageResult<ClassItem>>("/api/v1/classes?page_size=6"),
+      api<ScoreSummary>("/api/v1/scores/summary"),
+      api<Overview>("/api/v1/statistics/overview"),
+    ]).then(([s, c, score, stats]) => { setStudents(s); setClasses(c); setSummary(score); setOverview(stats); })
+      .catch((e) => setError(e instanceof Error ? e.message : "读取工作台数据失败"));
+  }, []);
+
+  if (!overview || !summary || !students || !classes) return <div><ErrorText error={error} />{!error && <p className="text-sm text-slate-400">正在加载工作台…</p>}</div>;
+  return <div>
+    <PageHeader title="教务工作台" eyebrow="WOLIN EDUCATION · OVERVIEW" desc="欢迎回来，一站掌握学生成长、班级教学与就业进展。" />
+    <section className="relative mb-6 overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-600 to-violet-500 p-7 text-white"><div className="absolute -right-8 -top-20 h-64 w-64 rounded-full border-[36px] border-white/5" /><div className="absolute right-40 top-20 h-32 w-32 rounded-full border-[24px] border-white/5" /><div className="relative flex flex-wrap items-center justify-between gap-5"><div><p className="text-[10px] tracking-[.2em] text-indigo-200">STUDENT GROWTH, CONNECTED</p><h2 className="mt-3 text-xl font-semibold tracking-wide">让教学管理更有序，让学生成长看得见。</h2><p className="mt-3 text-xs text-indigo-200">从档案、考核到就业，用完整的数据连接每一个阶段。</p></div><Link href="/students" className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-xs font-semibold text-indigo-600">管理学生档案<ArrowRight size={14} /></Link></div></section>
+    <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><StatCard label="在册学生" value={overview.student_total} icon={<Users size={21} />} description="全部有效学生档案" /><StatCard label="培训班级" value={overview.class_total} icon={<School size={21} />} description="当前与历史班级" /><StatCard label="有效考核成绩" value={summary.total} icon={<BookOpenCheck size={21} />} description={`平均分 ${summary.average_score ?? "—"}`} /><StatCard label="就业经历" value={overview.employment_total} icon={<BriefcaseBusiness size={21} />} description="多段就业历史独立保留" /></div>
+    <div className="mb-6 grid gap-6 xl:grid-cols-[1.65fr_1fr]"><section className="rounded-xl border border-slate-200 bg-white"><div className="flex items-center justify-between px-5 py-4"><h2 className="text-sm font-semibold text-slate-800">学生档案速览</h2><Link href="/students" className="inline-flex items-center gap-1 text-[11px] text-indigo-500">全部学生<ArrowUpRight size={13} /></Link></div><div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead className="border-y border-slate-100 bg-slate-50 text-[10px] text-slate-500"><tr>{["学生", "培训班级", "学历", "就业状态", "操作"].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{students.items.map((s, i) => <tr key={s.id}><td className="px-5 py-3.5"><Link href={`/students/${s.id}`} className="flex items-center gap-2.5"><span className={`grid h-8 w-8 place-items-center rounded-lg text-[10px] ${i % 2 ? "bg-sky-50 text-sky-500" : "bg-indigo-50 text-indigo-500"}`}>{s.name.slice(-2)}</span><span><span className="block font-medium text-slate-800">{s.name}</span><span className="mt-1 block text-[9px] text-slate-400">{s.student_no}</span></span></Link></td><td className="px-5 py-3.5"><Link className="text-slate-500 hover:text-indigo-500" href={`/classes/${s.class_id}`}>{s.class_no}</Link></td><td className="px-5 py-3.5"><Badge>{s.education ?? "未填写"}</Badge></td><td className="px-5 py-3.5"><Badge tone={s.employment_status === "已就业" ? "green" : "slate"}>{s.employment_status}</Badge></td><td className="px-5 py-3.5"><Link href={`/students/${s.id}`} className="text-indigo-500">详情</Link></td></tr>)}</tbody></table></div></section>
+      <section className="rounded-xl border border-slate-200 bg-white p-5"><div className="mb-6 flex items-center justify-between"><h2 className="text-sm font-semibold text-slate-800">班级教学概况</h2><Link href="/classes" className="text-[11px] text-indigo-500">查看班级</Link></div><div className="space-y-6">{classes.items.map((c) => <div key={c.id}><div className="mb-2 flex justify-between text-xs"><Link href={`/classes/${c.id}`} className="font-medium text-slate-600 hover:text-indigo-500">{c.class_no}</Link><span className="text-[10px] text-slate-400">{c.total_students ?? 0} 人 · {c.class_status}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-400" style={{ width: `${(c.total_students ?? 0) / Math.max(...classes.items.map((r) => r.total_students ?? 0), 1) * 100}%` }} /></div><p className="mt-2 truncate text-[10px] text-slate-400">{c.class_name} · {c.head_teacher?.name ?? "未安排班主任"}</p></div>)}</div><Link href="/scheduling" className="mt-7 flex items-center justify-between rounded-lg bg-indigo-50 p-4 text-xs text-indigo-600"><span className="flex items-center gap-2"><CalendarDays size={15} />安排班级教师关系</span><ArrowRight size={14} /></Link></section></div>
+    <section className="grid gap-4 sm:grid-cols-3">{[
+      { title: "考核成绩", description: "按学生与考试序次精准查询、修改", href: "/scores", icon: BookOpenCheck },
+      { title: "就业成长", description: "多 Offer 状态与薪资成长记录", href: "/employment", icon: BriefcaseBusiness },
+      { title: "统计分析", description: "查看成绩达标、班级学情与薪资排行", href: "/statistics", icon: GraduationCap },
+    ].map((item) => { const Icon = item.icon; return <Link key={item.href} href={item.href} className="group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 transition hover:border-indigo-200 hover:shadow-sm"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-50 text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-500"><Icon size={19} /></span><span><span className="block text-sm font-medium text-slate-700">{item.title}</span><span className="mt-1.5 block text-[10px] text-slate-400">{item.description}</span></span><ArrowUpRight size={14} className="ml-auto shrink-0 text-slate-300 group-hover:text-indigo-500" /></Link>; })}</section>
+  </div>;
+}

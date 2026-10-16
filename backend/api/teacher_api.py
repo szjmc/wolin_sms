@@ -10,17 +10,25 @@ DELETE /api/v1/teachers/{teacher_id}   逻辑删除老师
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from api.common import ERROR_RESPONSES, page_data, success
+from api.common import ERROR_RESPONSES, get_current_user, get_current_user, page_data, success
+from api.permissions import check_permission
 from dao import class_teacher_dao, teacher_dao
 from database import get_db
-from scheme.common import ApiResponse, PageData, TeacherStatus
+from scheme.common import ApiResponse, PageData, TeacherStatus, TeachingStatus
+from model.user import User
 from scheme.teacher import TeacherCreate, TeacherRead, TeacherUpdate
 
-router = APIRouter(tags=["老师管理"], responses=ERROR_RESPONSES)
+router = APIRouter(tags=["老师管理"], responses=ERROR_RESPONSES, dependencies=[Depends(get_current_user)])
 
 
 @router.post("/teachers", response_model=ApiResponse[TeacherRead], status_code=201, summary="新增老师")
-def create_teacher(payload: TeacherCreate, db: Session = Depends(get_db)):
+def create_teacher(
+    payload: TeacherCreate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 老师建档属于组织配置，只有管理员可以操作
+    check_permission(current, "setup")
     # 第 1 步：检查老师编号是否已存在（已删除的老师也算）
     if teacher_dao.get_teacher_by_no(db, payload.teacher_no) is not None:
         raise HTTPException(status_code=409, detail="老师编号已存在")
@@ -36,6 +44,7 @@ def list_teachers(
     name: str | None = Query(default=None, description="老师姓名（模糊匹配）"),
     specialty: str | None = Query(default=None, description="教学专长（模糊匹配）"),
     teacher_status: TeacherStatus | None = Query(default=None, description="老师状态"),
+    teaching_status: TeachingStatus | None = Query(default=None, description="授课状态"),
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页条数，默认 20，最大 100"),
     db: Session = Depends(get_db),
@@ -44,9 +53,13 @@ def list_teachers(
     status_value = None
     if teacher_status is not None:
         status_value = teacher_status.value
+    teaching_value = None
+    if teaching_status is not None:
+        teaching_value = teaching_status.value
 
     teachers, total = teacher_dao.list_teachers(
-        db, page, page_size, teacher_no=teacher_no, name=name, specialty=specialty, teacher_status=status_value
+        db, page, page_size, teacher_no=teacher_no, name=name, specialty=specialty,
+        teacher_status=status_value, teaching_status=teaching_value
     )
 
     items = []
@@ -64,7 +77,13 @@ def get_teacher(teacher_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/teachers/{teacher_id}", response_model=ApiResponse[TeacherRead], summary="更新老师（只传需要修改的字段）")
-def update_teacher(teacher_id: int, payload: TeacherUpdate, db: Session = Depends(get_db)):
+def update_teacher(
+    teacher_id: int,
+    payload: TeacherUpdate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    check_permission(current, "setup")
     teacher = teacher_dao.get_teacher_by_id(db, teacher_id)
     if teacher is None:
         raise HTTPException(status_code=404, detail="老师不存在或已删除")
@@ -76,7 +95,12 @@ def update_teacher(teacher_id: int, payload: TeacherUpdate, db: Session = Depend
 
 
 @router.delete("/teachers/{teacher_id}", status_code=204, summary="逻辑删除老师")
-def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
+def delete_teacher(
+    teacher_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    check_permission(current, "setup")
     teacher = teacher_dao.get_teacher_by_id(db, teacher_id)
     if teacher is None:
         raise HTTPException(status_code=404, detail="老师不存在或已删除")

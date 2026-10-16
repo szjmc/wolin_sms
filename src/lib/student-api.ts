@@ -1,11 +1,11 @@
-import { and, asc, count, eq, like, lte, or } from "drizzle-orm";
+import { and, asc, count, eq, inArray, like, lte, or } from "drizzle-orm";
 import { db } from "@/db";
-import { classes, students } from "@/db/schema";
+import { classes, employmentRecords, students } from "@/db/schema";
 import { birthDateCutoff, calculateAge } from "@/lib/age";
 import { jsonErr, jsonOk, pageData, readPage } from "@/lib/http";
 import type { Student } from "@/lib/contracts";
 
-export function studentView(row: typeof students.$inferSelect, classNo: string | null, className?: string | null): Student {
+export function studentView(row: typeof students.$inferSelect, classNo: string | null, className?: string | null, employed = false): Student {
   // 学生一定有所属班级、出生日期必填，所以班级编号和年龄一定有值；?? 只是为了过类型检查。
   return {
     id: row.id, student_no: row.studentNo, name: row.name, class_id: row.classId,
@@ -14,6 +14,7 @@ export function studentView(row: typeof students.$inferSelect, classNo: string |
     graduate_school: row.graduateSchool, major: row.major, education: row.education,
     consultant_no: row.consultantNo, avatar_url: row.avatarUrl,
     training_enrollment_date: row.trainingEnrollmentDate, training_graduation_date: row.trainingGraduationDate,
+    employment_status: employed ? "已就业" : "待就业",
     created_at: row.createdAt.toISOString(), updated_at: row.updatedAt.toISOString(),
   };
 }
@@ -44,5 +45,10 @@ export async function handleStudentSearch(method: string, slug: string[], reques
   const rows = await db.select({ student: students, classNo: classes.classNo, className: classes.className })
     .from(students).leftJoin(classes, eq(classes.id, students.classId)).where(where)
     .orderBy(asc(students.id)).limit(pageSize).offset((page - 1) * pageSize);
-  return jsonOk(pageData(rows.map((r) => studentView(r.student, r.classNo, r.className)), Number(total), page, pageSize));
+  // 有"已接受"Offer 的学生算已就业，否则待就业（一条查询拿全部）
+  const employed = await db.selectDistinct({ studentId: employmentRecords.studentId })
+    .from(employmentRecords).innerJoin(students, eq(students.id, employmentRecords.studentId))
+    .where(and(eq(employmentRecords.isDeleted, 0), eq(students.isDeleted, 0), eq(employmentRecords.offerStatus, "已接受")));
+  const employedIds = new Set(employed.map((r) => r.studentId));
+  return jsonOk(pageData(rows.map((r) => studentView(r.student, r.classNo, r.className, employedIds.has(r.student.id))), Number(total), page, pageSize));
 }

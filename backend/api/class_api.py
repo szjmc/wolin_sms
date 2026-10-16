@@ -10,17 +10,25 @@ DELETE /api/v1/classes/{class_id}   逻辑删除班级（班级下有学生时�
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from api.common import ERROR_RESPONSES, page_data, success
+from api.common import ERROR_RESPONSES, get_current_user, get_current_user, page_data, success
+from api.permissions import check_permission
 from dao import class_dao, class_teacher_dao, student_dao
 from database import get_db
 from scheme.class_info import ClassCreate, ClassRead, ClassUpdate
 from scheme.common import ApiResponse, ClassStatus, PageData
+from model.user import User
 
-router = APIRouter(tags=["班级管理"], responses=ERROR_RESPONSES)
+router = APIRouter(tags=["班级管理"], responses=ERROR_RESPONSES, dependencies=[Depends(get_current_user)])
 
 
 @router.post("/classes", response_model=ApiResponse[ClassRead], status_code=201, summary="新增班级")
-def create_class(payload: ClassCreate, db: Session = Depends(get_db)):
+def create_class(
+    payload: ClassCreate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 第 0 步：只有管理员能建班级（组织配置类操作）
+    check_permission(current, "setup")
     # 第 1 步：检查班级编号是否已存在（已删除的班级也算，因为编号全表唯一）
     if class_dao.get_class_by_no(db, payload.class_no) is not None:
         raise HTTPException(status_code=409, detail="班级编号已存在")
@@ -65,11 +73,19 @@ def get_class(class_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/classes/{class_id}", response_model=ApiResponse[ClassRead], summary="更新班级（只传需要修改的字段）")
-def update_class(class_id: int, payload: ClassUpdate, db: Session = Depends(get_db)):
+def update_class(
+    class_id: int,
+    payload: ClassUpdate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     # 第 1 步：班级必须存在且未删除
     class_info = class_dao.get_class_by_id(db, class_id)
     if class_info is None:
         raise HTTPException(status_code=404, detail="班级不存在或已删除")
+
+    # 第 1.5 步：权限校验——班主任只能改自己带的班
+    check_permission(current, "class", class_id)
 
     # 第 2 步：只取客户端本次真正提交的字段（没提交的字段保持原值，不会被改成 null）
     changes = payload.model_dump(exclude_unset=True)
@@ -86,11 +102,18 @@ def update_class(class_id: int, payload: ClassUpdate, db: Session = Depends(get_
 
 
 @router.delete("/classes/{class_id}", status_code=204, summary="逻辑删除班级")
-def delete_class(class_id: int, db: Session = Depends(get_db)):
+def delete_class(
+    class_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     # 第 1 步：班级必须存在且未删除
     class_info = class_dao.get_class_by_id(db, class_id)
     if class_info is None:
         raise HTTPException(status_code=404, detail="班级不存在或已删除")
+
+    # 第 1.5 步：权限校验——班主任只能删自己带的班
+    check_permission(current, "class", class_id)
 
     # 第 2 步：班级下还有未删除的学生，直接拒绝，防止产生找不到班级的孤儿学生
     if student_dao.count_students_by_class(db, class_id) > 0:

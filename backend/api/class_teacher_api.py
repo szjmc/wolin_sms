@@ -14,14 +14,16 @@ DELETE /api/v1/classes/{class_id}/teachers/{teacher_id}   解除班级老师关�
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from api.common import ERROR_RESPONSES, page_data, success
+from api.common import ERROR_RESPONSES, get_current_user, page_data, success
+from api.permissions import check_permission
 from dao import class_dao, class_teacher_dao, teacher_dao
 from database import get_db
+from model.user import User
 from scheme.class_teacher import ClassTeacherItem, ClassTeacherRelationCreate, ClassTeacherRelationRead
 from scheme.common import ApiResponse, PageData, RelationType
 from scheme.teacher import TeacherRead
 
-router = APIRouter(tags=["班级老师关系"], responses=ERROR_RESPONSES)
+router = APIRouter(tags=["班级老师关系"], responses=ERROR_RESPONSES, dependencies=[Depends(get_current_user)])
 
 
 @router.put(
@@ -33,8 +35,11 @@ def add_class_teacher(
     class_id: int,
     teacher_id: int,
     payload: ClassTeacherRelationCreate,
+    current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # 排班属于组织配置，只有管理员或负责该班的班主任能操作
+    check_permission(current, "class", class_id)
     # 第 1 步：班级和老师都必须存在且未删除
     class_info = class_dao.get_class_by_id(db, class_id)
     if class_info is None:
@@ -85,8 +90,10 @@ def list_class_teachers(
     class_id: int,
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页条数，默认 20，最大 100"),
+    current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    check_permission(current, "class", class_id)
     if class_dao.get_class_by_id(db, class_id) is None:
         raise HTTPException(status_code=404, detail="班级不存在或已删除")
 
@@ -115,8 +122,10 @@ def remove_class_teacher(
     class_id: int,
     teacher_id: int,
     relation_type: RelationType | None = Query(default=None, description="关系类型；不传则解除该老师在此班级的全部关系"),
+    current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    check_permission(current, "class", class_id)
     # 枚举转换成普通字符串
     relation_type_value = None
     if relation_type is not None:

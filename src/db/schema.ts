@@ -114,6 +114,8 @@ export const employmentRecords = pgTable(
     position: varchar("position", { length: 100 }),
     salaryAmount: numeric("salary_amount", { precision: 12, scale: 2 }).notNull(),
     salaryPeriod: varchar("salary_period", { length: 10 }).notNull(),
+    // Offer 状态：一名学生多个 Offer，接受一条其余自动改为已拒绝
+    offerStatus: varchar("offer_status", { length: 20 }).notNull().default("待处理"),
     // 就业前快照：只在新增时从过往经历复制，之后不随学生档案改变。
     pastSalaryAmount: numeric("past_salary_amount", { precision: 12, scale: 2 }),
     pastSalaryPeriod: varchar("past_salary_period", { length: 10 }),
@@ -136,3 +138,16 @@ export const classTeacherRelations = pgTable(
   },
   (t) => [index("idx_ctr_class_deleted").on(t.classId, t.isDeleted)],
 );
+
+/** 用户表：登录账号 + bcrypt/scrypt 加密密码 + 角色 */
+export const users = pgTable("users", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  username: varchar("username", { length: 50 }).notNull().unique(),
+  passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  displayName: varchar("display_name", { length: 50 }).notNull(),
+  role: varchar("role", { length: 20 }).notNull().default("viewer"),
+  classId: bigint("class_id", { mode: "number" }),
+  token: varchar("token", { length: 64 }),
+  isActive: smallint("is_active").notNull().default(1),
+  ...audit,
+});

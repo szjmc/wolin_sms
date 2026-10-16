@@ -10,13 +10,13 @@ DELETE /api/v1/past-experiences/{experience_id}         逻辑删除过往经历
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from api.common import ERROR_RESPONSES, page_data, success
+from api.common import ERROR_RESPONSES, get_current_user, page_data, success
 from dao import past_experience_dao, student_dao
 from database import get_db
 from scheme.common import ApiResponse, PageData
 from scheme.past_experience import PastExperienceCreate, PastExperienceRead, PastExperienceUpdate
 
-router = APIRouter(tags=["学生过往经历"], responses=ERROR_RESPONSES)
+router = APIRouter(tags=["学生过往经历"], responses=ERROR_RESPONSES, dependencies=[Depends(get_current_user)])
 
 
 def get_visible_experience(db: Session, experience_id: int):

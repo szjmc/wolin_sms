@@ -16,8 +16,17 @@ import { handleStudentSearch } from "@/lib/student-api";
 import { handleScoreTable } from "@/lib/score-api";
 import { handleClassManagement } from "@/lib/class-api";
 import { handleEmploymentManagement } from "@/lib/employment-api";
+import { guardWrite, handleAuth } from "@/lib/auth-api";
 
-function studentDto(row: typeof students.$inferSelect, classNo?: string | null) {
+// 有"已接受"Offer 的学生算已就业，否则待就业
+async function acceptedStudentIds(): Promise<Set<number>> {
+  const rows = await db.selectDistinct({ studentId: employmentRecords.studentId }).from(employmentRecords)
+    .innerJoin(students, eq(students.id, employmentRecords.studentId))
+    .where(and(eq(employmentRecords.isDeleted, 0), eq(students.isDeleted, 0), eq(employmentRecords.offerStatus, "已接受")));
+  return new Set(rows.map((r) => r.studentId));
+}
+
+function studentDto(row: typeof students.$inferSelect, classNo?: string | null, employed = false) {
   return {
     id: row.id,
     student_no: row.studentNo,
@@ -34,6 +43,7 @@ function studentDto(row: typeof students.$inferSelect, classNo?: string | null) 
     birth_date: row.birthDate,
     age: calculateAge(row.birthDate),
     gender: row.gender,
+    employment_status: employed ? "已就业" : "待就业",
     avatar_url: row.avatarUrl,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
@@ -135,6 +145,13 @@ export async function handleWolin(method: string, slug: string[], request: Reque
   const { page, pageSize } = readPage(url);
 
   try {
+    // 登录注册 / 用户管理接口先走认证模块
+    const authResponse = await handleAuth(method, slug, request);
+    if (authResponse) return authResponse;
+    // 写操作统一过权限闸门：未登录 401，越权 403
+    const denied = await guardWrite(method, path, request);
+    if (denied) return denied;
+
     const studentSearch = await handleStudentSearch(method, slug, request);
     if (studentSearch) return studentSearch;
     const scoreTable = await handleScoreTable(method, slug, request);
@@ -402,7 +419,7 @@ export async function handleWolin(method: string, slug: string[], request: Reque
         })
         .returning();
       const cls = await getClass(row.classId);
-      return jsonOk(studentDto(row, cls?.classNo), 201);
+      return jsonOk(studentDto(row, cls?.classNo, (await acceptedStudentIds()).has(row.id)), 201);
     }
     if (slug[0] === "students" && slug.length === 2 && /^\d+$/.test(slug[1])) {
       const id = Number(slug[1]);
@@ -410,7 +427,7 @@ export async function handleWolin(method: string, slug: string[], request: Reque
       if (!row) return jsonErr(404, "学生不存在或已删除");
       if (method === "GET") {
         const cls = await getClass(row.classId);
-        return jsonOk(studentDto(row, cls?.classNo));
+        return jsonOk(studentDto(row, cls?.classNo, (await acceptedStudentIds()).has(row.id)));
       }
       if (method === "PATCH") {
         const body = await readJson(request);
@@ -448,7 +465,7 @@ export async function handleWolin(method: string, slug: string[], request: Reque
         if (enroll && grad && grad < enroll) return jsonErr(400, "培训结课日期不能早于培训入学日期");
         const [updated] = await db.update(students).set(patch).where(eq(students.id, id)).returning();
         const cls = await getClass(updated.classId);
-        return jsonOk(studentDto(updated, cls?.classNo));
+        return jsonOk(studentDto(updated, cls?.classNo, (await acceptedStudentIds()).has(updated.id)));
       }
       if (method === "DELETE") {
         await db.update(students).set({ isDeleted: 1, deletedAt: new Date(), updatedAt: new Date() }).where(eq(students.id, id));

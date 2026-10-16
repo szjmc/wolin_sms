@@ -218,7 +218,7 @@ export default function StatisticsPage() {
           {top.length === 0 && !loading ? <p className="mt-4 text-center text-xs text-slate-400">暂无就业记录</p> : null}
         </div>
 
-        <div className="space-y-6">
+        <div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <h2 className="flex items-center gap-2 text-[15px] font-semibold text-slate-800"><CalendarDays size={17} className="text-slate-400" />班级平均求职周期</h2>
             <p className="mt-2 text-[11px] text-slate-400">统计有效就业记录中具有开放与拿到 Offer 日期的自然日天数</p>
@@ -235,7 +235,11 @@ export default function StatisticsPage() {
             </div>
             {durations.length === 0 && !loading ? <p className="mt-4 text-center text-xs text-slate-400">暂无完整日期的就业记录</p> : null}
           </div>
+        </div>
+      </section>
 
+      {/* 30 岁以上学员结构：两张等宽卡片，和上面各区块宽度统一 */}
+      <section className="grid items-start gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5">
             <div className="flex items-center justify-between">
               <h2 className="text-[15px] font-semibold text-slate-800">30 岁以上学员年龄结构</h2>
@@ -276,7 +280,6 @@ export default function StatisticsPage() {
             </div>
             <p className="mt-3 text-[10px] leading-5 text-slate-400">平均年龄只统计 30 岁以上学员；平均薪资按其有效就业记录折算成年薪（月薪 × 12）。最高学历分布来自学生档案的 education 字段。</p>
           </div>
-        </div>
       </section>
     </div>
   );

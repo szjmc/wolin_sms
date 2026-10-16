@@ -14,9 +14,43 @@ import calendar
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
+from fastapi import Depends, Header, HTTPException
+from sqlalchemy.orm import Session
+
+from database import get_db
 from model.student import Student
+from model.user import User
 from scheme.common import ErrorResponse
 from scheme.student import StudentRead
+
+
+def find_user_by_token(db: Session, token: str):
+    """根据令牌查用户；查不到返回 None（令牌错、账号被删或停用都会走到这里）"""
+    from dao import user_dao
+
+    return user_dao.get_user_by_token(db, token)
+
+
+def require_user_by_header(db: Session, authorization: str | None):
+    """
+    根据 Authorization 头取出当前登录用户（普通函数，不是依赖注入）。
+    没带令牌、令牌不对、账号被停用，都返回 401。
+    """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="请先登录")
+    token = authorization.replace("Bearer", "").strip()
+    user = find_user_by_token(db, token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    return user
+
+
+def get_current_user(
+    authorization: str | None = Header(default=None, description="Authorization: Bearer <登录令牌>"),
+    db: Session = Depends(get_db),
+):
+    """FastAPI 依赖：取出当前登录用户，用在需要登录的接口上。"""
+    return require_user_by_header(db, authorization)
 
 # 统一的错误响应说明：注册到每个路由上，Swagger 文档里就能看到出错时返回什么格式
 ERROR_RESPONSES = {
@@ -103,6 +137,6 @@ def to_student_read(student: Student) -> StudentRead:
     把数据库中的学生对象转换成响应模型。
     数据库里没有 age 字段，这里根据出生日期实时计算年龄后再返回。
     """
+    # 年龄不是数据库字段，用 model_copy(update=...) 补上去
     student_read = StudentRead.model_validate(student)
-    student_read.age = calculate_age(student.birth_date)
-    return student_read
+    return student_read.model_copy(update={"age": calculate_age(student.birth_date)})

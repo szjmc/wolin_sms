@@ -137,7 +137,7 @@ def test_get_student_not_found(client):
 
 def test_patch_student_training_dates(client):
     class_id = create_class(client, "CS-PATCH")["id"]
-    created = create_student(client, "ST-PATCH", class_id)
+    created = create_student(client, "ST-PATCH", class_id, training_graduation_date=None)
     ok_data(client.patch(f"{API}/students/{created['id']}", json={"training_enrollment_date": "2026-03-01"}))
     data = ok_data(client.patch(f"{API}/students/{created['id']}", json={"training_graduation_date": "2026-10-01"}))
     assert data["training_enrollment_date"] == "2026-03-01"
@@ -147,7 +147,7 @@ def test_patch_student_training_dates(client):
 
 def test_patch_student_training_order_invalid(client):
     class_id = create_class(client, "CS-PATCH-D")["id"]
-    created = create_student(client, "ST-PATCH-D", class_id, training_enrollment_date="2026-03-01")
+    created = create_student(client, "ST-PATCH-D", class_id, training_enrollment_date="2026-03-01", training_graduation_date=None)
     assert_error(client.patch(f"{API}/students/{created['id']}", json={"training_graduation_date": "2026-01-01"}), 400)
 
 

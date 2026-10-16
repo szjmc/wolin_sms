@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, like, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { classes, employmentRecords as records, pastExperiences, students } from "@/db/schema";
 import { annualized, calculateAge } from "@/lib/age";
@@ -12,6 +12,7 @@ function view(row: typeof records.$inferSelect, studentNo?: string, classId?: nu
     employment_open_date: row.employmentOpenDate, offer_date: row.offerDate,
     company_name: row.companyName, employment_city: row.employmentCity, position: row.position,
     salary_amount: Number(row.salaryAmount).toFixed(2), salary_period: row.salaryPeriod,
+    offer_status: row.offerStatus,
     annualized_salary: annualized(row.salaryAmount, row.salaryPeriod),
     past_salary_amount: row.pastSalaryAmount == null ? null : Number(row.pastSalaryAmount).toFixed(2),
     past_salary_period: row.pastSalaryPeriod, previous_position: row.previousPosition,
@@ -52,6 +53,10 @@ async function createEmployment(request: Request) {
   if (openDate && offerDate && offerDate < openDate) return jsonErr(422, "Offer 日期不能早于就业开放日期");
   const [student] = await db.select().from(students).where(and(eq(students.id, studentId), eq(students.isDeleted, 0))).limit(1);
   if (!student) return jsonErr(404, "学生不存在或已删除");
+  // 规则：学生结课后才能登记就业信息
+  if (!student.trainingGraduationDate) return jsonErr(400, "该学生尚未结课，不能新增就业信息");
+  // 规则：就业开放日期必须大于等于学生的培训结课日期
+  if (openDate && openDate < student.trainingGraduationDate) return jsonErr(400, "就业开放日期不能早于学生培训结课日期");
   const [cls] = await db.select().from(classes).where(and(eq(classes.id, student.classId), eq(classes.isDeleted, 0))).limit(1);
   if (!cls) return jsonErr(404, "学生所属班级不存在或已删除");
   const [previous] = await db.select().from(pastExperiences).where(and(eq(pastExperiences.studentId, studentId), eq(pastExperiences.isDeleted, 0))).orderBy(desc(pastExperiences.id)).limit(1);
@@ -86,6 +91,20 @@ export async function handleEmploymentManagement(method: string, slug: string[],
     return jsonOk({ cities: cities.map((r) => r.value).filter(Boolean), positions: positions.map((r) => r.value).filter(Boolean) });
   }
   if (path === "employment-records" && method === "POST") return createEmployment(request);
+  // 接受 / 拒绝 Offer：接受一条，同一学生其它记录自动改为已拒绝
+  if (slug[0] === "employment-records" && slug.length === 3 && (slug[2] === "accept" || slug[2] === "reject") && method === "POST") {
+    const id = Number(slug[1]);
+    const [row] = await db.select().from(records).where(and(eq(records.id, id), eq(records.isDeleted, 0))).limit(1);
+    if (!row) return jsonErr(404, "就业记录不存在或已删除");
+    const status = slug[2] === "accept" ? "已接受" : "已拒绝";
+    const [updated] = await db.update(records).set({ offerStatus: status, updatedAt: new Date() }).where(eq(records.id, id)).returning();
+    if (slug[2] === "accept") {
+      // 选中这条之后，同学生其它未删除记录全部改为已拒绝（记录保留，不删除）
+      await db.update(records).set({ offerStatus: "已拒绝", updatedAt: new Date() })
+        .where(and(eq(records.studentId, updated.studentId), ne(records.id, id), eq(records.isDeleted, 0)));
+    }
+    return jsonOk(view(updated));
+  }
   const individual = slug[0] === "employment-records" && (slug.length === 2 || (slug.length === 3 && slug[2] === "comparison"));
   if (individual && /^\d+$/.test(slug[1]) && method === "GET") {
     const [result] = await db.select({ record: records, studentNo: students.studentNo, classId: classes.id })

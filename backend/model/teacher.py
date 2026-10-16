@@ -32,7 +32,9 @@ class Teacher(Base):
     # 教学年限：允许小数（如 5.5 年），不得为负数（由 Pydantic 校验）
     teaching_years = Column(Numeric(5, 2), nullable=False, default=0, server_default="0", comment="教学年限，可为小数")
     # 老师状态：在职 / 离职
-    teacher_status = Column(String(20), nullable=False, default="在职", comment="老师状态：在职/离职")
+    teacher_status = Column(String(20), nullable=False, default="在职", server_default="在职", comment="老师状态：在职/离职")
+    # 授课状态：可授课 / 暂停授课。暂停后不能被排入任何新班级。
+    teaching_status = Column(String(20), nullable=False, default="可授课", server_default="可授课", comment="授课状态：可授课/暂停授课")
 
     # ========== 公共字段：逻辑删除 + 时间戳 ==========
     is_deleted = Column(TINYINT, nullable=False, default=0, server_default="0", comment="逻辑删除：0=未删除，1=已删除")

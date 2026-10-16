@@ -134,3 +134,64 @@ def delete_record(db: Session, record: EmploymentRecord):
     record.is_deleted = 1
     record.deleted_at = datetime.now()
     db.commit()
+
+
+def list_active_records_by_student(db: Session, student_id: int):
+    """查询某个学生全部未删除的就业记录（判断就业状态、做 Offer 选择时用）"""
+    return (
+        db.query(EmploymentRecord)
+        .filter(EmploymentRecord.student_id == student_id, EmploymentRecord.is_deleted == 0)
+        .order_by(EmploymentRecord.id.asc())
+        .all()
+    )
+
+
+def list_accepted_student_ids(db: Session):
+    """
+    查询所有"有已接受 Offer"的学生ID集合。
+    学生的就业状态就是靠它算的：在集合里=已就业，不在=待就业。
+    """
+    rows = (
+        db.query(EmploymentRecord.student_id)
+        .join(Student, Student.id == EmploymentRecord.student_id)
+        .filter(
+            EmploymentRecord.is_deleted == 0,
+            Student.is_deleted == 0,
+            EmploymentRecord.offer_status == "已接受",
+        )
+        .distinct()
+        .all()
+    )
+    ids = []
+    for row in rows:
+        ids.append(row.student_id)
+    return ids
+
+
+def set_offer_status(db: Session, record: EmploymentRecord, status: str):
+    """修改一条就业记录的 Offer 状态"""
+    record.offer_status = status
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def reject_other_offers(db: Session, record: EmploymentRecord):
+    """
+    选中一条 Offer 之后，把同一学生其他"未删除"的就业记录全部改成"已拒绝"。
+    只动其他记录，不动当前这条（当前这条由调用方改成"已接受"）。
+    """
+    others = (
+        db.query(EmploymentRecord)
+        .filter(
+            EmploymentRecord.student_id == record.student_id,
+            EmploymentRecord.id != record.id,
+            EmploymentRecord.is_deleted == 0,
+        )
+        .all()
+    )
+    now = datetime.now()
+    for other in others:
+        other.offer_status = "已拒绝"
+        other.updated_at = now
+    db.commit()

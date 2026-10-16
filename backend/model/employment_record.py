@@ -49,6 +49,15 @@ class EmploymentRecord(Base):
         nullable=False,
         comment="薪资周期：MONTH=月薪，YEAR=年薪",
     )
+    # Offer 状态：一名学生可以有多条就业记录（多个 Offer），
+    # 选中一条为"已接受"，其余自动改为"已拒绝"，都没有就都是"待处理"
+    offer_status = Column(
+        String(20),
+        nullable=False,
+        default="待处理",
+        server_default="待处理",
+        comment="Offer 状态：待处理/已接受/已拒绝",
+    )
 
     # ========== 公共字段：逻辑删除 + 时间戳 ==========
     is_deleted = Column(TINYINT, nullable=False, default=0, server_default="0", comment="逻辑删除：0=未删除，1=已删除")

@@ -43,6 +43,9 @@ HTTP 请求
 
 ## 3. 快速开始
 
+**已有数据但忘记管理员密码？不要清库。** 在部署终端执行 `python backend/reset_admin.py --list` 查询管理员账号，再执行 `python backend/reset_admin.py --username admin` 安全重设密码。账号不存在时可显式添加 `--create-if-missing --generate` 新建专用管理员。详细说明见 [管理员账号恢复](../docs/管理员账号恢复.md)。测试夹具中的账号密码不是正式环境默认凭据。
+
+
 ```bash
 # 1) 在 MySQL 8.0 中创建数据库（也可以直接执行 docs/sql/init_mysql.sql）
 mysql -uroot -p -e "CREATE DATABASE wolin_student DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"

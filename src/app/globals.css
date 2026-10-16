@@ -8,3 +8,7 @@ input[type="checkbox"] { accent-color: #635bff; width: 15px; height: 15px; }
 button:focus-visible, a:focus-visible { outline: 2px solid #818cf8; outline-offset: 3px; }
 ::selection { background: #e0e7ff; color: #4338ca; }
 @media print { aside, header, footer, .no-print { display: none !important; } main { padding: 0 !important; } }
+
+/* 独立登录/注册背景，与工作台布局隔离。 */
+.login-scene { background: radial-gradient(ellipse at 10% 10%, #7560ef 0, transparent 50%), linear-gradient(120deg, #3730a3 0%, #4f46e5 47%, #eef2ff 47.2%, #f8fafc 100%); }
+@media (max-width: 1023px) { .login-scene { background: linear-gradient(145deg, #eef2ff, #f8fafc); } }

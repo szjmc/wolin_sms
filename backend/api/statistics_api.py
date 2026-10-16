@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from api.common import (
     ERROR_RESPONSES,
+    get_current_user,
     calculate_annualized_salary,
     calculate_birth_date_cutoff,
     page_data,
@@ -41,7 +42,7 @@ from scheme.statistics import (
 )
 from scheme.student import StudentRead
 
-router = APIRouter(prefix="/statistics", tags=["统计分析"], responses=ERROR_RESPONSES)
+router = APIRouter(prefix="/statistics", tags=["统计分析"], responses=ERROR_RESPONSES, dependencies=[Depends(get_current_user)])
 
 
 @router.get(
