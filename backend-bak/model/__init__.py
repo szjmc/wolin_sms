@@ -7,7 +7,9 @@
 """
 from sqlalchemy import Column, String
 
-from app.core.database import Base
+# 原代码引用了 backend-bak 中不存在的 app.core.database，导入任意 model 包都会启动失败。
+# 这里改为使用本目录现有 database.py 提供的 Base，保持旧 Teacher 模型和新增 User 模型使用同一元数据。
+from database import Base
 
 
 class Teacher(Base):
