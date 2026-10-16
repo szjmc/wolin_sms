@@ -1,32 +1,6 @@
-# -*- coding: utf-8 -*-
-"""
-老师数据模型（ORM 模型）
-=======================
-对应数据库表 teacher。
-一个类就是一张表，一个属性就是一列。
-"""
-from sqlalchemy import Column, String
+# [修改说明] 原代码：backend-bak/model/__init__.py 定义了过时的 Teacher 模型且未导入 User；
+# 修改原因：对齐 backend/ 入口，create_all 需要看到 User 模型才能创建 users 表；
+# 修改为：仅导入 User，避免与 backend-bak 其他模型文件重复注册同名数据表。
+from model.user import User
 
-from app.core.database import Base
-
-
-class Teacher(Base):
-    __tablename__ = "teacher"  # 数据库表名
-
-    # 老师编号，主键，字符串类型，最长 20 个字符
-    teacher_id = Column(String(20), primary_key=True, comment="老师编号")
-
-    # 老师姓名，非空
-    name = Column(String(50), nullable=False, comment="老师姓名")
-
-    # 性别，可空
-    gender = Column(String(4), comment="性别")
-
-    # 联系电话，可空
-    phone = Column(String(20), comment="联系电话")
-
-    # 教授科目，可空
-    subject = Column(String(50), comment="教授科目/方向")
-
-    # 职称，可空
-    title = Column(String(50), comment="职称，如讲师、高级讲师")
+__all__ = ["User"]

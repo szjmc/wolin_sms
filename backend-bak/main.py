@@ -26,14 +26,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import model  # noqa: F401  # [修改说明] 原代码：backend-bak/main.py 未导入 model，create_all 不会创建业务表；修改原因：对齐 backend/ 入口，确保 users 等表自动创建；修改为：导入全部 ORM 模型。
 from api import (
+    auth_api,
+    class_api,
+    class_teacher_api,
     # class_api,
     # class_teacher_api,
-    # employment_record_api,
-    # past_experience_api,
+    employment_record_api,
+    past_experience_api,
     # score_api,
-    # statistics_api,
-    students_api,
+    statistics_api,
+    # students_api,
+    student_api,
+    score_api,
+    teacher,
     # teacher_api,
 )
 from database import Base, engine, get_db
@@ -159,13 +166,17 @@ async def unknown_exception_handler(request: Request, exc: Exception):
 API_PREFIX = "/api/v1"
 
 # app.include_router(class_api.router, prefix=API_PREFIX)
-# app.include_router(teacher_api.router, prefix=API_PREFIX)
+app.include_router(teacher.router, prefix=API_PREFIX)
 # app.include_router(class_teacher_api.router, prefix=API_PREFIX)
-app.include_router(students_api.router, prefix=API_PREFIX)
+app.include_router(auth_api.router, prefix=API_PREFIX)
+app.include_router(class_api.router, prefix=API_PREFIX)
+app.include_router(class_teacher_api.router, prefix=API_PREFIX)
+app.include_router(student_api.router, prefix=API_PREFIX)
+app.include_router(score_api.router, prefix=API_PREFIX)
 # app.include_router(score_api.router, prefix=API_PREFIX)
-# app.include_router(past_experience_api.router, prefix=API_PREFIX)
-# app.include_router(employment_record_api.router, prefix=API_PREFIX)
-# app.include_router(statistics_api.router, prefix=API_PREFIX)
+app.include_router(past_experience_api.router, prefix=API_PREFIX)
+app.include_router(employment_record_api.router, prefix=API_PREFIX)
+app.include_router(statistics_api.router, prefix=API_PREFIX)
 
 
 @app.get("/", tags=["系统"], summary="首页")

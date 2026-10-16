@@ -1,46 +1,42 @@
-# 说明：班级表的班主任、授课老师都关联这张表。
+"""
+班级表 classes 的 ORM 模型
+"""
+from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Date
+from sqlalchemy import BigInteger, Column, Date, DateTime, String
+from sqlalchemy.dialects.mysql import TINYINT
+
 from database import Base
 
-# 班级实体模型，映射classes表
+
 class ClassInfo(Base):
-    __tablename__ = "classes"  # 小组统一的表名叫 classes
+    """
+    班级表。
+    说明：类名叫 ClassInfo 而不叫 Class，因为 class 是 Python 关键字，容易混淆。
+    """
 
-    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
-    class_no = Column(String(50), unique=True, nullable=False, comment="班级编号（如 WL2024-A）")
-    class_name = Column(String(50), nullable=False, comment="班级名称")
-    start_date = Column(Date, comment="开课时间")
-    completion_date = Column(Date, comment="结课时间")
-    class_status = Column(String(20), comment="班级状态（如 在读、已结课）")
+    # 数据库中的表名
+    __tablename__ = "classes"
 
-# 教师实体模型，映射teachers表
-class Teacher(Base):
-    __tablename__ = "teachers"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    teacher_no = Column(String(20), unique=True, nullable=False, comment="老师工号")
-    name = Column(String(50), nullable=False, comment="老师姓名")
-    specialty= Column(String(50), comment="授课科目")
+    # 主键：BIGINT 自增
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment="班级主键ID")
+    # 班级编号：业务编号，唯一（唯一索引对已逻辑删除的记录同样生效）
+    class_no = Column(String(30), nullable=False, unique=True, comment="班级编号，如 WL2026-A")
+    # 班级名称
+    class_name = Column(String(100), nullable=False, comment="班级名称")
+    # 开班日期
+    start_date = Column(Date, nullable=False, comment="开班日期")
+    # 班级结课日期：未结课时为空（和学生个人的培训结课日期是两个不同的字段）
+    completion_date = Column(Date, nullable=True, comment="班级结课日期，未结课为空")
+    # 班级状态：未开班 / 在读 / 已结课
+    class_status = Column(String(20), nullable=False, default="在读", comment="班级状态：未开班/在读/已结课")
 
-# 班级-老师关联中间表
-class ClassTeacherRelation(Base):
-    __tablename__ = "class_teacher_relations"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    class_id = Column(Integer, nullable=False, comment="班级id（关联 classes.id）")
-    teacher_id = Column(Integer, nullable=False, comment="老师id（关联 teachers.id）")
-    relation_type = Column(String(20), comment="关系类型：班主任 / 授课老师")
-    is_deleted = Column(Integer, default=0, comment="逻辑删除：0未删，1已删")
-
-class Student(Base):
-    __tablename__ = "students"
-    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
-    class_id = Column(Integer, comment="班级id（关联 classes.id）")
-    name = Column(String(50), comment="学生姓名")
-
-class Score(Base):
-    __tablename__ = "scores"
-    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
-    student_id = Column(Integer, comment="学生id（关联 students.id）")
-    exam_no = Column(Integer, comment="考试序次")
-    score = Column(Integer, comment="考试成绩")
-    is_deleted = Column(Integer, default=0, comment="逻辑删除：0未删，1已删")
+    # ========== 以下 4 个是所有表都有的公共字段 ==========
+    # 逻辑删除标记：0=未删除，1=已删除。普通查询必须加条件 is_deleted == 0
+    is_deleted = Column(TINYINT, nullable=False, default=0, server_default="0", comment="逻辑删除：0=未删除，1=已删除")
+    # 逻辑删除时间：未删除时为空
+    deleted_at = Column(DateTime, nullable=True, comment="逻辑删除时间")
+    # 创建时间：新增记录时自动填写当前时间
+    created_at = Column(DateTime, nullable=False, default=datetime.now, comment="创建时间")
+    # 更新时间：新增时填写当前时间，之后每次修改自动刷新
+    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment="更新时间")

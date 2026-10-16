@@ -4,7 +4,11 @@
 注意：已剥离学生模块，删除班级时不再检查学生。
 """
 from sqlalchemy.orm import Session
-from model.class_info import ClassInfo, ClassTeacherRelation, Teacher,Student,Score
+from model.class_info import ClassInfo
+from model.class_teacher_relation import ClassTeacherRelation
+from model.teacher import Teacher
+from model.student import Student
+from model.score import Score
 from database import serialize
 
 

@@ -1,38 +1,47 @@
+"""
+学生成绩模块的 Pydantic 模型
+============================
+业务约定：查、改、删成绩一律按「学生ID + 考核序次」定位，
+不使用成绩表的自增主键 id。因为老师改成绩时手里只有「张三第 2 次考核」，没有成绩 id。
+"""
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
 class ScoreCreate(BaseModel):
-    """新增成绩请求体"""
-    student_id: int = Field(..., gt=0, description="学生 ID")
-    exam_no: int = Field(..., ge=1, description="考核序次（正整数）")
-    score: Decimal = Field(..., ge=0, le=100, description="分数 0-100")
+    """新增成绩请求体。同一学生同一考核序次只允许一条未删除的成绩。"""
+
+    student_id: int = Field(gt=0, description="学生ID（必须是未删除的学生）", examples=[1])
+    exam_no: int = Field(ge=1, description="考核序次，正整数，1 表示第 1 次考核", examples=[1])
+    score: Decimal = Field(
+        ge=0, le=100, max_digits=5, decimal_places=2,
+        description="成绩，范围 0~100，最多两位小数", examples=[88.5],
+    )
+
+
 class ScoreUpdate(BaseModel):
-    """修改成绩请求体（部分更新）"""
-    score: Decimal | None = Field(None, ge=0, le=100, description="分数")
-    exam_no: int | None = Field(None, ge=1, description="考核序次")
+    """
+    按「学生 + 考核序次」修改成绩时的请求体。
+    考核序次已经在 URL 路径里，这里只允许改分数。
+    """
+
+    score: Decimal = Field(
+        ge=0, le=100, max_digits=5, decimal_places=2,
+        description="成绩，范围 0~100", examples=[92],
+    )
+
+
 class ScoreRead(BaseModel):
-    """成绩响应体"""
+    """成绩响应数据"""
+
+    # from_attributes=True：允许直接从 SQLAlchemy ORM 对象创建这个模型
     model_config = ConfigDict(from_attributes=True)
+
     id: int
     student_id: int
     exam_no: int
     score: Decimal
     created_at: datetime
     updated_at: datetime
-class ScoreReadWithStudent(ScoreRead):
-    """成绩响应（含学生信息）"""
-    student_name: str | None = None
-    class_id: int | None = None
-class ScoreListResponse(BaseModel):
-    total: int
-    page: int
-    page_size: int
-    items: List[ScoreRead]
-class ScoreSearchResponse(BaseModel):
-    total: int = Field(description="总条数")
-    page: int = Field(description="当前页")
-    page_size: int = Field( description="每页条数")
-    items: List[ScoreReadWithStudent] = Field( description="数据列表")
-    model_config = ConfigDict(from_attributes=True)
-

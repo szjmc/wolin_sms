@@ -1,6 +1,14 @@
+"""
+学生表 students 的 ORM 模型
+
+重要约定：
+1. 数据库只保存出生日期 birth_date，不保存 age 字段；年龄在接口返回时动态计算。
+2. training_enrollment_date / training_graduation_date 是"培训机构"的入学、结课日期，
+   不是学生原毕业院校的入学、毕业日期。原学历信息看 graduate_school 和 major。
+"""
 from datetime import datetime
-from sqlalchemy.orm import relationship
-from sqlalchemy import BigInteger, Column, Date, DateTime, Enum, ForeignKey, Index, String
+
+from sqlalchemy import BigInteger, Column, Date, DateTime, Enum, ForeignKey, String
 from sqlalchemy.dialects.mysql import TINYINT
 
 from database import Base
@@ -37,14 +45,9 @@ class Student(Base):
     birth_date = Column(Date, nullable=False, comment="出生日期（年龄由此动态计算）")
     # 性别：男 / 女 / 其他
     gender = Column(Enum("男", "女", "其他", name="student_gender_enum"), nullable=False, comment="性别：男/女/其他")
-    employment_records = relationship(
-        "EmploymentRecord",
-        back_populates="student"
-    )
-    # 逻辑删除
+
+    # ========== 公共字段：逻辑删除 + 时间戳 ==========
     is_deleted = Column(TINYINT, nullable=False, default=0, server_default="0", comment="逻辑删除：0=未删除，1=已删除")
     deleted_at = Column(DateTime, nullable=True, comment="逻辑删除时间")
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment="创建时间")
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment="更新时间")
-
-

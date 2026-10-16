@@ -12,7 +12,7 @@ from sqlalchemy import BigInteger, Column, DateTime, Enum, Index, Numeric, Strin
 # TINYINT MySQL特有的短整型，用于存0/1逻辑删除标记
 from sqlalchemy.dialects.mysql import TINYINT
 # 导入ORM基类Base，所有模型继承Base
-# from database import Base
+from database import Base  # [修改说明] 原代码：Base 导入被注释，模型无法定义；修改原因：对齐 backend/，启用 Teacher ORM；修改为：取消注释。
 
 
 class Teacher(Base):
@@ -43,6 +43,8 @@ class Teacher(Base):
     teaching_years = Column(Numeric(5, 2), nullable=False, default=0, server_default="0", comment="教学年限，可为小数")
     # 老师状态：在职、离职
     teacher_status = Column(String(20), nullable=False, default="在职", comment="老师状态：在职/离职")
+    # 授课状态：可授课 / 暂停授课
+    teaching_status = Column(String(20), nullable=False, default="可授课", server_default="可授课", comment="授课状态：可授课/暂停授课")
 
     # ========== 公共字段：逻辑删除 + 时间戳 ==========
     # is_deleted逻辑删除标记：0未删除；1已删除；TINYINT存储
